@@ -1,0 +1,12 @@
+<svg width="96" height="28" viewBox="0 0 96 28" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Amo Studio MX logo">
+  <defs>
+    <linearGradient id="amoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f95f62" />
+      <stop offset="50%" stop-color="#f7b267" />
+      <stop offset="100%" stop-color="#fff0d8" />
+    </linearGradient>
+  </defs>
+  <text x="0" y="21" font-family="'Space Grotesk', 'Inter', sans-serif" font-size="20" font-weight="600" fill="url(#amoGradient)">
+    AMO
+  </text>
+</svg>
