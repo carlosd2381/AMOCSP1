@@ -61,6 +61,9 @@ const PaymentSchedulesSettingsPage = lazy(() =>
 const ContractTemplatesSettingsPage = lazy(() =>
   import('@/modules/settings/pages/ContractTemplatesSettingsPage').then((module) => ({ default: module.ContractTemplatesSettingsPage })),
 )
+const QuestionnaireTemplatesSettingsPage = lazy(() =>
+  import('@/modules/settings/pages/QuestionnaireTemplatesSettingsPage').then((module) => ({ default: module.QuestionnaireTemplatesSettingsPage })),
+)
 const TokensSettingsPage = lazy(() =>
   import('@/modules/settings/pages/TokensSettingsPage').then((module) => ({ default: module.TokensSettingsPage })),
 )
@@ -112,6 +115,7 @@ const router = createBrowserRouter([
       { path: 'settings/financials', element: <FinancialSettingsPage /> },
       { path: 'settings/payment-schedules', element: <PaymentSchedulesSettingsPage /> },
       { path: 'settings/contract-templates', element: <ContractTemplatesSettingsPage /> },
+      { path: 'settings/questionnaire-templates', element: <QuestionnaireTemplatesSettingsPage /> },
       { path: 'settings/tokens', element: <TokensSettingsPage /> },
       { path: 'settings/products-services', element: <ProductsServicesSettingsPage /> },
       { path: 'portal/preview', element: <ClientPortalHome isPreview /> },

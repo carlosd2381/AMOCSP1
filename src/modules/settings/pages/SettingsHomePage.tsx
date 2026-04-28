@@ -68,6 +68,14 @@ const SETTINGS_SECTIONS: SettingsSectionCard[] = [
     status: 'active',
   },
   {
+    id: 'questionnaire-templates',
+    title: 'Questionnaire Templates',
+    description: 'Build booking questionnaires with field types like text, dropdown, checkboxes, and radio.',
+    icon: FileText,
+    to: '/settings/questionnaire-templates',
+    status: 'active',
+  },
+  {
     id: 'template-tokens',
     title: 'Template Tokens',
     description: 'Central token catalog for documents, emails, and dynamic messaging.',

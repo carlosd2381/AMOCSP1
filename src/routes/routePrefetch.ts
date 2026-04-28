@@ -9,6 +9,7 @@ const prefetchers: Record<string, () => Promise<unknown>> = {
   '/settings/company-details': () => import('@/modules/settings/pages/CompanyDetailsSettingsPage'),
   '/settings/financials': () => import('@/modules/settings/pages/FinancialSettingsPage'),
   '/settings/payment-schedules': () => import('@/modules/settings/pages/PaymentSchedulesSettingsPage'),
+  '/settings/questionnaire-templates': () => import('@/modules/settings/pages/QuestionnaireTemplatesSettingsPage'),
   '/settings/products-services': () => import('@/modules/settings/pages/ProductsServicesSettingsPage'),
   '/portal/preview': () => import('@/modules/portal/pages/ClientPortalHome'),
   '/auth/login': () => import('@/modules/auth/pages/LoginPage'),
