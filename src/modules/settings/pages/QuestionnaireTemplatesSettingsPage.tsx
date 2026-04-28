@@ -66,6 +66,12 @@ const RECOMMENDED_CLIENT_TOKEN_KEYS = [
   'client_name',
   'client_email',
   'client_phone',
+  'bride.name',
+  'bride.email',
+  'bride.phone',
+  'groom.name',
+  'groom.email',
+  'groom.phone',
 ]
 
 function requiresOptions(type: QuestionnaireFieldType) {
@@ -468,9 +474,10 @@ export function QuestionnaireTemplatesSettingsPage() {
                               clientTokenKey: event.target.value
                                 .trim()
                                 .toLowerCase()
-                                .replace(/[^a-z0-9_]/g, '_')
+                                .replace(/[^a-z0-9_.]/g, '_')
                                 .replace(/_+/g, '_')
-                                .replace(/^_+|_+$/g, ''),
+                                .replace(/\.+/g, '.')
+                                .replace(/^[_\.]+|[_\.]+$/g, ''),
                             }))}
                             className="input-compact"
                             placeholder="client_phone"

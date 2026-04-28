@@ -31,9 +31,10 @@ function normalizeTokenKey(value: string) {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/[^a-z0-9_.]/g, '_')
     .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^[_\.]+|[_\.]+$/g, '')
 }
 
 function copyToClipboard(value: string) {

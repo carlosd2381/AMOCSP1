@@ -261,6 +261,12 @@ export async function createContractForEvent(input: CreateContractInput) {
   if (eventError) throw eventError
 
   let clientName = ''
+  let brideName = ''
+  let brideEmail = ''
+  let bridePhone = ''
+  let groomName = ''
+  let groomEmail = ''
+  let groomPhone = ''
   if (resolvedTemplate.leadId) {
     const { data: leadRow, error: leadError } = await supabaseClient
       .from('leads')
@@ -278,6 +284,42 @@ export async function createContractForEvent(input: CreateContractInput) {
         .maybeSingle()
       if (clientError) throw clientError
       clientName = clientRow?.name ?? ''
+    }
+
+    const { data: roleRows, error: roleError } = await supabaseClient
+      .from('lead_contacts')
+      .select('role, contact_id')
+      .eq('lead_id', resolvedTemplate.leadId)
+      .in('role', ['bride', 'groom'])
+
+    if (roleError) throw roleError
+
+    const contactIds = (roleRows ?? []).map((row) => row.contact_id)
+    if (contactIds.length) {
+      const { data: contactRows, error: contactError } = await supabaseClient
+        .from('address_book_contacts')
+        .select('id, display_name, email, phone')
+        .in('id', contactIds)
+
+      if (contactError) throw contactError
+
+      const contactsById = new Map((contactRows ?? []).map((row) => [row.id, row]))
+      for (const row of roleRows ?? []) {
+        const contact = contactsById.get(row.contact_id)
+        if (!contact) continue
+
+        if (row.role === 'bride') {
+          brideName = brideName || contact.display_name || ''
+          brideEmail = brideEmail || contact.email || ''
+          bridePhone = bridePhone || contact.phone || ''
+        }
+
+        if (row.role === 'groom') {
+          groomName = groomName || contact.display_name || ''
+          groomEmail = groomEmail || contact.email || ''
+          groomPhone = groomPhone || contact.phone || ''
+        }
+      }
     }
   }
 
@@ -313,6 +355,18 @@ export async function createContractForEvent(input: CreateContractInput) {
         contractTemplateName: resolvedTemplate.template?.name ?? null,
         contractTemplateTitle: resolvedTemplate.template?.title ?? null,
         client_name: clientName || null,
+        'bride.name': brideName || null,
+        'bride.email': brideEmail || null,
+        'bride.phone': bridePhone || null,
+        bride_name: brideName || null,
+        bride_email: brideEmail || null,
+        bride_phone: bridePhone || null,
+        'groom.name': groomName || null,
+        'groom.email': groomEmail || null,
+        'groom.phone': groomPhone || null,
+        groom_name: groomName || null,
+        groom_email: groomEmail || null,
+        groom_phone: groomPhone || null,
         brand: brandName || null,
         event_date: eventDate || null,
         event_location: eventLocation || null,

@@ -132,9 +132,10 @@ function sanitizeFieldType(value: unknown, fallback: QuestionnaireFieldType): Qu
 function sanitizeTokenKey(value: unknown) {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : ''
   return text
-    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/[^a-z0-9_.]/g, '_')
     .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^[_\.]+|[_\.]+$/g, '')
 }
 
 function normalizeField(payload: unknown, index: number): QuestionnaireTemplateField {

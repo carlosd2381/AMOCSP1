@@ -80,6 +80,45 @@ async function buildContractFallbackTokenValues(brandId: string, eventId?: strin
         fallback.client_name = clientRow.name
       }
     }
+
+    const { data: roleRows, error: roleError } = await supabaseClient
+      .from('lead_contacts')
+      .select('role, contact_id')
+      .eq('lead_id', eventRow.lead_id)
+      .in('role', ['bride', 'groom'])
+
+    if (roleError) throw roleError
+
+    const contactIds = (roleRows ?? []).map((row) => row.contact_id)
+    if (contactIds.length) {
+      const { data: contactRows, error: contactError } = await supabaseClient
+        .from('address_book_contacts')
+        .select('id, display_name, email, phone')
+        .in('id', contactIds)
+
+      if (contactError) throw contactError
+
+      const contactsById = new Map((contactRows ?? []).map((row) => [row.id, row]))
+
+      for (const row of roleRows ?? []) {
+        if (row.role !== 'bride' && row.role !== 'groom') continue
+        const contact = contactsById.get(row.contact_id)
+        if (!contact) continue
+
+        if (contact.display_name?.trim()) {
+          fallback[`${row.role}.name`] = contact.display_name.trim()
+          fallback[`${row.role}_name`] = contact.display_name.trim()
+        }
+        if (contact.email?.trim()) {
+          fallback[`${row.role}.email`] = contact.email.trim()
+          fallback[`${row.role}_email`] = contact.email.trim()
+        }
+        if (contact.phone?.trim()) {
+          fallback[`${row.role}.phone`] = contact.phone.trim()
+          fallback[`${row.role}_phone`] = contact.phone.trim()
+        }
+      }
+    }
   }
 
   return fallback

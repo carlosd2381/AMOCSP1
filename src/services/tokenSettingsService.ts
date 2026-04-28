@@ -30,6 +30,42 @@ export const SYSTEM_TEMPLATE_TOKENS: TemplateTokenDefinition[] = [
     isActive: true,
   },
   {
+    id: 'bride-name',
+    key: 'bride.name',
+    label: 'Bride Name',
+    description: 'Lead contact name assigned to role Bride.',
+    exampleValue: 'Cynthia Tovar',
+    scope: 'all',
+    isActive: true,
+  },
+  {
+    id: 'bride-email',
+    key: 'bride.email',
+    label: 'Bride Email',
+    description: 'Lead contact email assigned to role Bride.',
+    exampleValue: 'cynthia@email.com',
+    scope: 'all',
+    isActive: true,
+  },
+  {
+    id: 'groom-name',
+    key: 'groom.name',
+    label: 'Groom Name',
+    description: 'Lead contact name assigned to role Groom.',
+    exampleValue: 'Diego Rios',
+    scope: 'all',
+    isActive: true,
+  },
+  {
+    id: 'groom-email',
+    key: 'groom.email',
+    label: 'Groom Email',
+    description: 'Lead contact email assigned to role Groom.',
+    exampleValue: 'diego@email.com',
+    scope: 'all',
+    isActive: true,
+  },
+  {
     id: 'brand',
     key: 'brand',
     label: 'Brand Name',
@@ -123,7 +159,11 @@ function sanitizeTokenScope(value: unknown, fallback: TokenScope): TokenScope {
 
 function sanitizeTokenKey(value: unknown, fallback: string) {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  const normalized = text.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
+  const normalized = text
+    .replace(/[^a-z0-9_.]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/\.+/g, '.')
+    .replace(/^[_\.]+|[_\.]+$/g, '')
   return normalized || fallback
 }
 

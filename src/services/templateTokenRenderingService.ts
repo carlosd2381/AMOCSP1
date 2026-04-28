@@ -1,6 +1,6 @@
 export type TemplateTokenValueMap = Record<string, string>
 
-const TOKEN_PATTERN = /{{\s*([a-z0-9_]+)\s*}}/gi
+const TOKEN_PATTERN = /{{\s*([a-z0-9_.]+)\s*}}/gi
 
 export function normalizeTokenValueMap(source: Record<string, unknown> | null | undefined): TemplateTokenValueMap {
   if (!source) return {}

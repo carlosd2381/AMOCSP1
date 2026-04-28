@@ -144,7 +144,7 @@ export async function saveQuestionnaire({ eventId, brandSlug, leadId, template, 
   }
 
   if (leadId && template) {
-    await applyQuestionnaireClientTokenMappings(leadId, template, payload)
+    await applyQuestionnaireClientTokenMappings(leadId, eventId, template, payload)
   }
 
   if (submit && leadId) {
@@ -167,6 +167,8 @@ function readString(value: QuestionnaireAnswerValue | undefined): string {
 }
 
 type ClientTokenKey = 'client_name' | 'client_email' | 'client_phone'
+type ContactRole = 'bride' | 'groom'
+type ContactField = 'name' | 'email' | 'phone'
 
 function stringifyAnswerValue(value: QuestionnaireAnswerValue | undefined): string {
   if (typeof value === 'string') return value.trim()
@@ -203,6 +205,7 @@ function buildQuestionnaireTokenValueMap(
 
 async function applyQuestionnaireClientTokenMappings(
   leadId: string,
+  eventId: string,
   template: QuestionnaireTemplateDefinition,
   payload: QuestionnaireFormValues,
 ) {
@@ -213,9 +216,9 @@ async function applyQuestionnaireClientTokenMappings(
 
   const { data: leadRow, error: leadError } = await supabaseClient
     .from('leads')
-    .select('client_id')
+    .select('client_id, brand_id')
     .eq('id', leadId)
-    .maybeSingle<{ client_id: string }>()
+    .maybeSingle<{ client_id: string; brand_id: string }>()
 
   if (leadError) {
     throw leadError
@@ -283,5 +286,128 @@ async function applyQuestionnaireClientTokenMappings(
 
   if (updateClientError) {
     throw updateClientError
+  }
+
+  await upsertRoleContactsFromTokenMap({
+    leadId,
+    brandId: leadRow.brand_id,
+    eventId,
+    tokenMap,
+  })
+}
+
+function readRoleTokenValue(
+  tokenMap: Record<string, string>,
+  role: ContactRole,
+  field: ContactField,
+): string {
+  return tokenMap[`${role}.${field}`] ?? tokenMap[`${role}_${field}`] ?? ''
+}
+
+async function upsertRoleContactsFromTokenMap(input: {
+  leadId: string
+  brandId: string
+  eventId: string
+  tokenMap: Record<string, string>
+}) {
+  const roles: ContactRole[] = ['bride', 'groom']
+
+  const { data: existingRows, error: existingError } = await supabaseClient
+    .from('lead_contacts')
+    .select('id, role, contact_id, sort_order')
+    .eq('lead_id', input.leadId)
+    .in('role', roles)
+
+  if (existingError) {
+    throw existingError
+  }
+
+  const existingByRole = new Map<ContactRole, { id: string; contact_id: string; sort_order: number }>()
+  const contactIds: string[] = []
+
+  for (const row of (existingRows ?? []) as Array<{ id: string; role: ContactRole; contact_id: string; sort_order: number }>) {
+    if (!existingByRole.has(row.role)) {
+      existingByRole.set(row.role, { id: row.id, contact_id: row.contact_id, sort_order: row.sort_order })
+      contactIds.push(row.contact_id)
+    }
+  }
+
+  const contactsById = new Map<string, { id: string; display_name: string; email: string | null; phone: string | null }>()
+  if (contactIds.length) {
+    const { data: contactRows, error: contactError } = await supabaseClient
+      .from('address_book_contacts')
+      .select('id, display_name, email, phone')
+      .in('id', contactIds)
+
+    if (contactError) {
+      throw contactError
+    }
+
+    for (const row of (contactRows ?? []) as Array<{ id: string; display_name: string; email: string | null; phone: string | null }>) {
+      contactsById.set(row.id, row)
+    }
+  }
+
+  const highestSortOrder = Math.max(0, ...((existingRows ?? []).map((row) => row.sort_order ?? 0)))
+  let sortOrderCursor = highestSortOrder
+
+  for (const role of roles) {
+    const name = readRoleTokenValue(input.tokenMap, role, 'name')
+    const email = readRoleTokenValue(input.tokenMap, role, 'email')
+    const phone = readRoleTokenValue(input.tokenMap, role, 'phone')
+
+    if (!name && !email && !phone) continue
+
+    const existing = existingByRole.get(role)
+    if (existing) {
+      const contact = contactsById.get(existing.contact_id)
+      const { error: updateContactError } = await supabaseClient
+        .from('address_book_contacts')
+        .update({
+          display_name: name || contact?.display_name || (role === 'bride' ? 'Bride' : 'Groom'),
+          email: email || contact?.email || null,
+          phone: phone || contact?.phone || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.contact_id)
+
+      if (updateContactError) {
+        throw updateContactError
+      }
+
+      continue
+    }
+
+    const { data: newContact, error: createContactError } = await supabaseClient
+      .from('address_book_contacts')
+      .insert({
+        brand_id: input.brandId,
+        display_name: name || (role === 'bride' ? 'Bride' : 'Groom'),
+        email: email || null,
+        phone: phone || null,
+      })
+      .select('id')
+      .single()
+
+    if (createContactError || !newContact) {
+      throw createContactError ?? new Error(`Unable to create ${role} contact`)
+    }
+
+    sortOrderCursor += 1
+    const { error: createLinkError } = await supabaseClient
+      .from('lead_contacts')
+      .insert({
+        lead_id: input.leadId,
+        brand_id: input.brandId,
+        event_id: input.eventId,
+        contact_id: newContact.id,
+        role,
+        source: 'portal',
+        sort_order: sortOrderCursor,
+      })
+
+    if (createLinkError) {
+      throw createLinkError
+    }
   }
 }
