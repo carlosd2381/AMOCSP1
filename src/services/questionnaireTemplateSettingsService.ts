@@ -21,6 +21,7 @@ export interface QuestionnaireTemplateField {
   label: string
   type: QuestionnaireFieldType
   required: boolean
+  clientTokenKey?: string
   placeholder?: string
   helpText?: string
   options?: string[]
@@ -76,6 +77,7 @@ const EMPTY_QUESTIONNAIRE_TEMPLATE_SETTINGS: QuestionnaireTemplateSettings = {
           label: 'Client Names',
           type: 'single_line_text',
           required: true,
+          clientTokenKey: 'client_name',
           placeholder: 'First and last names',
         },
         {
@@ -83,6 +85,7 @@ const EMPTY_QUESTIONNAIRE_TEMPLATE_SETTINGS: QuestionnaireTemplateSettings = {
           label: 'Client Email',
           type: 'email',
           required: true,
+          clientTokenKey: 'client_email',
           placeholder: 'name@email.com',
         },
         {
@@ -126,12 +129,21 @@ function sanitizeFieldType(value: unknown, fallback: QuestionnaireFieldType): Qu
     : fallback
 }
 
+function sanitizeTokenKey(value: unknown) {
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return text
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
 function normalizeField(payload: unknown, index: number): QuestionnaireTemplateField {
   const fallback = {
     id: `field-${index + 1}`,
     label: `Question ${index + 1}`,
     type: 'single_line_text' as QuestionnaireFieldType,
     required: false,
+    clientTokenKey: '',
     placeholder: '',
     helpText: '',
     options: [],
@@ -152,6 +164,7 @@ function normalizeField(payload: unknown, index: number): QuestionnaireTemplateF
     label: sanitizeText(source.label, fallback.label),
     type,
     required: sanitizeBoolean(source.required, false),
+    clientTokenKey: sanitizeTokenKey(source.clientTokenKey),
     placeholder: typeof source.placeholder === 'string' ? source.placeholder.trim() : '',
     helpText: typeof source.helpText === 'string' ? source.helpText.trim() : '',
     options: OPTION_BASED_TYPES.includes(type)

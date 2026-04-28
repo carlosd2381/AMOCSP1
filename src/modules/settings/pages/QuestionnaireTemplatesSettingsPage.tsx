@@ -30,6 +30,7 @@ function emptyDraft(): QuestionnaireTemplateSettings {
             label: 'Client Names',
             type: 'single_line_text',
             required: true,
+            clientTokenKey: 'client_name',
             placeholder: 'First and last names',
             helpText: '',
             options: [],
@@ -167,6 +168,7 @@ export function QuestionnaireTemplatesSettingsPage() {
             label: 'New Question',
             type: 'single_line_text',
             required: false,
+            clientTokenKey: '',
             placeholder: '',
             helpText: '',
             options: [],
@@ -224,6 +226,7 @@ export function QuestionnaireTemplatesSettingsPage() {
           label: `Question ${template.fields.length + 1}`,
           type: 'single_line_text',
           required: false,
+          clientTokenKey: '',
           placeholder: '',
           helpText: '',
           options: [],
@@ -449,6 +452,26 @@ export function QuestionnaireTemplatesSettingsPage() {
                           />
                         </label>
 
+                        <label className="grid gap-1 text-[11px] uppercase tracking-[0.1em] text-brand-muted md:col-span-1">
+                          Client Token Key
+                          <input
+                            type="text"
+                            value={field.clientTokenKey ?? ''}
+                            onChange={(event) => updateField(activeTemplate.id, field.id, (current) => ({
+                              ...current,
+                              clientTokenKey: event.target.value
+                                .trim()
+                                .toLowerCase()
+                                .replace(/[^a-z0-9_]/g, '_')
+                                .replace(/_+/g, '_')
+                                .replace(/^_+|_+$/g, ''),
+                            }))}
+                            className="input-compact"
+                            placeholder="client_phone"
+                            disabled={disabled}
+                          />
+                        </label>
+
                         <label className="mt-5 inline-flex items-center gap-2 text-xs text-white">
                           <input
                             type="checkbox"
@@ -509,6 +532,9 @@ export function QuestionnaireTemplatesSettingsPage() {
                           <p className="text-xs uppercase tracking-[0.08em] text-brand-muted">
                             {FIELD_TYPE_OPTIONS.find((option) => option.value === field.type)?.label ?? field.type}
                           </p>
+                          {field.clientTokenKey ? (
+                            <p className="mt-1 text-[11px] text-brand-muted">Maps to token: {'{{'}{field.clientTokenKey}{'}}'}</p>
+                          ) : null}
                         </div>
                       ))}
                     </div>

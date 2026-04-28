@@ -2,6 +2,7 @@ import { supabaseClient } from '@/lib/supabase'
 import type { Database } from '@/lib/database.types'
 import { getBrandUuidFromSlug } from '@/lib/brandRegistry'
 import { type BrandSlug } from '@/types'
+import { type QuestionnaireTemplateDefinition } from '@/services/questionnaireTemplateSettingsService'
 
 type QuestionnaireRow = Database['public']['Tables']['questionnaires']['Row']
 type EventRow = Database['public']['Tables']['events']['Row']
@@ -92,11 +93,12 @@ interface SaveQuestionnaireParams {
   eventId: string
   brandSlug: BrandSlug
   leadId?: string
+  template?: QuestionnaireTemplateDefinition
   payload: QuestionnaireFormValues
   submit?: boolean
 }
 
-export async function saveQuestionnaire({ eventId, brandSlug, leadId, payload, submit = false }: SaveQuestionnaireParams) {
+export async function saveQuestionnaire({ eventId, brandSlug, leadId, template, payload, submit = false }: SaveQuestionnaireParams) {
   const brandUuid = await getBrandUuidFromSlug(brandSlug)
   const answers: QuestionnaireAnswers = { ...payload }
   const clientEmail = readString(payload.clientEmail)
@@ -141,6 +143,10 @@ export async function saveQuestionnaire({ eventId, brandSlug, leadId, payload, s
     throw eventUpdateError
   }
 
+  if (leadId && template) {
+    await applyQuestionnaireClientTokenMappings(leadId, template, payload)
+  }
+
   if (submit && leadId) {
     await supabaseClient
       .from('leads')
@@ -158,4 +164,124 @@ function toIso(date: string, time?: string) {
 
 function readString(value: QuestionnaireAnswerValue | undefined): string {
   return typeof value === 'string' ? value : ''
+}
+
+type ClientTokenKey = 'client_name' | 'client_email' | 'client_phone'
+
+function stringifyAnswerValue(value: QuestionnaireAnswerValue | undefined): string {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(', ')
+  }
+  return ''
+}
+
+function buildQuestionnaireTokenValueMap(
+  template: QuestionnaireTemplateDefinition,
+  payload: QuestionnaireFormValues,
+): Record<string, string> {
+  const tokenMap: Record<string, string> = {}
+
+  for (const field of template.fields) {
+    const tokenKey = (field.clientTokenKey ?? '').trim().toLowerCase()
+    if (!tokenKey) continue
+
+    const value = stringifyAnswerValue(payload[field.id])
+    if (!value) continue
+
+    tokenMap[tokenKey] = value
+  }
+
+  return tokenMap
+}
+
+async function applyQuestionnaireClientTokenMappings(
+  leadId: string,
+  template: QuestionnaireTemplateDefinition,
+  payload: QuestionnaireFormValues,
+) {
+  const tokenMap = buildQuestionnaireTokenValueMap(template, payload)
+  if (!Object.keys(tokenMap).length) {
+    return
+  }
+
+  const { data: leadRow, error: leadError } = await supabaseClient
+    .from('leads')
+    .select('client_id')
+    .eq('id', leadId)
+    .maybeSingle<{ client_id: string }>()
+
+  if (leadError) {
+    throw leadError
+  }
+
+  if (!leadRow?.client_id) {
+    return
+  }
+
+  const { data: clientRow, error: clientError } = await supabaseClient
+    .from('clients')
+    .select('id, name, email, phone, address')
+    .eq('id', leadRow.client_id)
+    .maybeSingle<Database['public']['Tables']['clients']['Row']>()
+
+  if (clientError) {
+    throw clientError
+  }
+
+  if (!clientRow) {
+    return
+  }
+
+  const coreTokenKeys: ClientTokenKey[] = ['client_name', 'client_email', 'client_phone']
+  const mappedMetadata = Object.entries(tokenMap).reduce<Record<string, string>>((acc, [key, value]) => {
+    if (!coreTokenKeys.includes(key as ClientTokenKey)) {
+      acc[key] = value
+    }
+    return acc
+  }, {})
+
+  const currentAddress = clientRow.address && typeof clientRow.address === 'object' && !Array.isArray(clientRow.address)
+    ? clientRow.address as Record<string, unknown>
+    : {}
+  const currentQuestionnaireTokens = currentAddress.questionnaireTokens
+    && typeof currentAddress.questionnaireTokens === 'object'
+    && !Array.isArray(currentAddress.questionnaireTokens)
+    ? currentAddress.questionnaireTokens as Record<string, string>
+    : {}
+
+  const nextAddress: Database['public']['Tables']['clients']['Update']['address'] = {
+    ...currentAddress,
+    questionnaireTokens: {
+      ...currentQuestionnaireTokens,
+      ...mappedMetadata,
+    },
+  }
+
+  const nextName = tokenMap.client_name ?? clientRow.name
+  const nextEmail = tokenMap.client_email ?? clientRow.email
+  const nextPhone = typeof tokenMap.client_phone === 'string'
+    ? (tokenMap.client_phone.trim() ? tokenMap.client_phone.trim() : null)
+    : (clientRow.phone ?? null)
+
+  const { error: updateClientError } = await supabaseClient
+    .from('clients')
+    .update({
+      name: nextName,
+      email: nextEmail,
+      phone: nextPhone,
+      address: nextAddress,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', clientRow.id)
+
+  if (updateClientError) {
+    throw updateClientError
+  }
 }

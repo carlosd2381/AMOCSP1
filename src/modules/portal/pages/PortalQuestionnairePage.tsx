@@ -102,6 +102,7 @@ export function PortalQuestionnairePage() {
         eventId,
         brandSlug: brand.slug,
         leadId: portal?.lead?.id,
+        template: selectedTemplate ?? undefined,
         payload: values,
         submit,
       })
