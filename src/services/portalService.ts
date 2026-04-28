@@ -2,6 +2,7 @@ import type { Database } from '@/lib/database.types'
 import { supabaseClient } from '@/lib/supabase'
 import { getBrandUuidFromSlug } from '@/lib/brandRegistry'
 import { type BrandSlug, type LeadStatus } from '@/types'
+import { resolveFinancialDefaultCurrency } from '@/services/financialCurrencyService'
 
 type LeadRow = Database['public']['Tables']['leads']['Row']
 type ClientRow = Database['public']['Tables']['clients']['Row']
@@ -11,12 +12,14 @@ type QuestionnaireRow = Database['public']['Tables']['questionnaires']['Row']
 type ContractRow = Database['public']['Tables']['contracts']['Row']
 type InvoiceRow = Database['public']['Tables']['invoices']['Row']
 type ReviewRow = Database['public']['Tables']['reviews']['Row']
+type ProposalStatus = ProposalRow['status']
 
 interface LeadRowWithClient extends LeadRow {
   clients: ClientRow | null
 }
 
 const DAY_IN_MS = 86_400_000
+const CLIENT_VISIBLE_PROPOSAL_STATUSES: ProposalStatus[] = ['sent', 'accepted']
 
 export interface TimelineItem {
   id: string
@@ -120,10 +123,16 @@ export interface PortalContext {
   steps: PortalStep[]
 }
 
-export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalContext> {
-  const brandUuid = await getBrandUuidFromSlug(brandSlug)
+interface FetchPortalContextOptions {
+  leadId?: string
+}
 
-  const { data: leadRow, error: leadError } = await supabaseClient
+export async function fetchPortalContext(brandSlug: BrandSlug, options?: FetchPortalContextOptions): Promise<PortalContext> {
+  const brandUuid = await getBrandUuidFromSlug(brandSlug)
+  const defaultCurrency = await resolveFinancialDefaultCurrency(brandUuid)
+  const normalizedLeadId = options?.leadId?.trim() || undefined
+
+  let leadQuery = supabaseClient
     .from('leads')
     .select(
       `id, status, event_date, clients:client_id (
@@ -132,6 +141,12 @@ export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalCo
     )
     .eq('brand_id', brandUuid)
     .neq('status', 'lost')
+
+  if (normalizedLeadId) {
+    leadQuery = leadQuery.eq('id', normalizedLeadId)
+  }
+
+  const { data: leadRow, error: leadError } = await leadQuery
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle<LeadRowWithClient>()
@@ -154,20 +169,24 @@ export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalCo
       : Promise.resolve({ data: null, error: null }),
     leadRow
       ? supabaseClient
-          .from('proposals')
-          .select('id, status, total_amount, currency, updated_at, lead_id')
-          .eq('brand_id', brandUuid)
-          .eq('lead_id', leadRow.id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle<ProposalRow>()
+        .from('proposals')
+        .select('id, status, total_amount, currency, updated_at, lead_id')
+        .eq('brand_id', brandUuid)
+        .eq('lead_id', leadRow.id)
+          .in('status', CLIENT_VISIBLE_PROPOSAL_STATUSES)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle<ProposalRow>()
+      : normalizedLeadId
+      ? Promise.resolve({ data: null, error: null })
       : supabaseClient
-          .from('proposals')
-          .select('id, status, total_amount, currency, updated_at, lead_id')
-          .eq('brand_id', brandUuid)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle<ProposalRow>(),
+        .from('proposals')
+        .select('id, status, total_amount, currency, updated_at, lead_id')
+        .eq('brand_id', brandUuid)
+            .in('status', CLIENT_VISIBLE_PROPOSAL_STATUSES)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle<ProposalRow>(),
   ])
 
   if (eventError) {
@@ -179,7 +198,7 @@ export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalCo
   }
 
   const eventMeta = eventRow ? toPortalEvent(eventRow) : null
-  const proposalMeta = proposalRow ? toPortalProposal(proposalRow) : null
+  const proposalMeta = proposalRow ? toPortalProposal(proposalRow, defaultCurrency) : null
 
   const eventId = eventRow?.id
 
@@ -226,7 +245,7 @@ export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalCo
 
     questionnaireMeta = questionnaireRes.data ? toPortalQuestionnaire(questionnaireRes.data) : null
     contractMeta = contractRes.data ? toPortalContract(contractRes.data) : null
-    invoicesMeta = invoiceRes.data ? invoiceRes.data.map(toPortalInvoice) : []
+    invoicesMeta = invoiceRes.data ? invoiceRes.data.map((row) => toPortalInvoice(row, defaultCurrency)) : []
     reviewMeta = reviewRes.data ? toPortalReview(reviewRes.data, eventMeta) : buildPendingReview(eventMeta)
   } else {
     reviewMeta = buildPendingReview(eventMeta)
@@ -255,6 +274,7 @@ export async function fetchPortalContext(brandSlug: BrandSlug): Promise<PortalCo
 
 export async function fetchPortalTimeline(brandSlug: BrandSlug): Promise<TimelineItem[]> {
   const brandUuid = await getBrandUuidFromSlug(brandSlug)
+  const defaultCurrency = await resolveFinancialDefaultCurrency(brandUuid)
 
   const [invoiceRes, galleryRes] = await Promise.all([
     supabaseClient
@@ -293,7 +313,7 @@ export async function fetchPortalTimeline(brandSlug: BrandSlug): Promise<Timelin
       id: `invoice-${invoiceRes.data.id}`,
       label: 'Invoice',
       tone: 'warning',
-      description: `Deposit of ${formatCurrency(invoiceRes.data.amount_due ?? invoiceRes.data.total_amount ?? 0, invoiceRes.data.currency ?? 'MXN')} due ${dueDate}.`,
+      description: `Deposit of ${formatCurrency(invoiceRes.data.amount_due ?? invoiceRes.data.total_amount ?? 0, invoiceRes.data.currency ?? defaultCurrency)} due ${dueDate}.`,
     })
   }
 
@@ -348,12 +368,12 @@ function toPortalEvent(row: EventRow): PortalEventMeta {
   }
 }
 
-function toPortalProposal(row: ProposalRow): PortalProposalMeta {
+function toPortalProposal(row: ProposalRow, defaultCurrency: 'USD' | 'MXN'): PortalProposalMeta {
   return {
     id: row.id,
     status: row.status,
     totalAmount: row.total_amount ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
     updatedAt: row.updated_at,
     leadId: row.lead_id,
   }
@@ -378,7 +398,7 @@ function toPortalContract(row: ContractRow): PortalContractMeta {
   }
 }
 
-function toPortalInvoice(row: InvoiceRow): PortalInvoiceMeta {
+function toPortalInvoice(row: InvoiceRow, defaultCurrency: 'USD' | 'MXN'): PortalInvoiceMeta {
   return {
     id: row.id,
     invoiceNumber: row.invoice_number,
@@ -386,7 +406,7 @@ function toPortalInvoice(row: InvoiceRow): PortalInvoiceMeta {
     dueDate: row.due_date,
     amountDue: row.amount_due ?? 0,
     totalAmount: row.total_amount ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
   }
 }
 

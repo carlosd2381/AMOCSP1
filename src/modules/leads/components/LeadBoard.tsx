@@ -138,9 +138,9 @@ export function LeadBoard({
         <button
           type="button"
           onClick={onAddLead}
-          className="btn-compact-primary inline-flex items-center gap-1"
+          className="btn-compact-primary inline-flex items-center gap-1 whitespace-nowrap px-4"
         >
-          <Plus size={13} /> Add Lead +
+          <Plus size={13} /> Add Lead
         </button>
       </div>
 
@@ -154,7 +154,7 @@ export function LeadBoard({
               <th className="py-2 pr-3">{renderSortableHeader('Event Date', 'eventDate', sortKey, sortDirection, toggleSort)}</th>
               <th className="py-2 pr-3">{renderSortableHeader('Stage', 'stage', sortKey, sortDirection, toggleSort)}</th>
               <th className="py-2 pr-3">{renderSortableHeader('Status', 'status', sortKey, sortDirection, toggleSort)}</th>
-              <th className="py-2 pr-0 text-right">Actions</th>
+              <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -164,7 +164,7 @@ export function LeadBoard({
                 onMouseEnter={() => onLeadPrefetch?.(lead.id)}
                 className={clsx('border-b border-border/20 align-top transition hover:bg-surface-muted/25')}
               >
-                <td className="py-2.5 pr-3">
+                <td className="py-2.5 pl-3 pr-3">
                   <button
                     type="button"
                     onClick={() => onLeadClick(lead.id)}
@@ -205,7 +205,7 @@ export function LeadBoard({
                     ))}
                   </select>
                 </td>
-                <td className="py-2.5 pr-0 text-right">
+                <td className="px-3 py-2.5 text-right">
                   <div className="flex items-center justify-end gap-1">
                     <button
                       type="button"

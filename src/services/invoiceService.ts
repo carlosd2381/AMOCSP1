@@ -1,5 +1,6 @@
 import { supabaseClient } from '@/lib/supabase'
 import type { Database } from '@/lib/database.types'
+import { resolveEventDefaultCurrency } from '@/services/financialCurrencyService'
 
 type InvoiceRow = Database['public']['Tables']['invoices']['Row']
 
@@ -28,6 +29,8 @@ export interface InvoiceSummary {
 }
 
 export async function fetchInvoicesForEvent(eventId: string): Promise<InvoiceSummary[]> {
+  const defaultCurrency = await resolveEventDefaultCurrency(eventId)
+
   const { data, error } = await supabaseClient
     .from('invoices')
     .select('id, invoice_number, status, due_date, issued_at, total_amount, amount_due, currency, payments')
@@ -46,7 +49,7 @@ export async function fetchInvoicesForEvent(eventId: string): Promise<InvoiceSum
     issuedAt: row.issued_at,
     totalAmount: row.total_amount ?? 0,
     amountDue: row.amount_due ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
     payments: normalizePayments(row.payments),
   }))
 }
@@ -60,3 +63,4 @@ function normalizePayments(payload: InvoiceRow['payments']): InvoiceSummary['pay
     method: entry.method,
   }))
 }
+

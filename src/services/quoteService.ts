@@ -7,22 +7,41 @@ const TAX_LABELS: Record<TaxCode, string> = {
   ISR_RET: 'ISR Retenido',
 }
 
-export function calculateTaxLines(lineItems: LineItem[]): TaxLine[] {
+export interface QuoteTaxRates {
+  IVA: number
+  IVA_RET: number
+  ISR: number
+  ISR_RET: number
+}
+
+const DEFAULT_TAX_RATES: QuoteTaxRates = {
+  IVA: 0.16,
+  IVA_RET: 0.106667,
+  ISR: 0.1,
+  ISR_RET: 0.1,
+}
+
+export function calculateTaxLines(lineItems: LineItem[], taxRates?: Partial<QuoteTaxRates>): TaxLine[] {
+  const rates: QuoteTaxRates = {
+    ...DEFAULT_TAX_RATES,
+    ...(taxRates ?? {}),
+  }
+
   const aggregated: Record<TaxCode, TaxLine> = {
-    IVA: { code: 'IVA', displayName: TAX_LABELS.IVA, rate: 0.16, amount: 0, baseAmount: 0 },
+    IVA: { code: 'IVA', displayName: TAX_LABELS.IVA, rate: rates.IVA, amount: 0, baseAmount: 0 },
     IVA_RET: {
       code: 'IVA_RET',
       displayName: TAX_LABELS.IVA_RET,
-      rate: 0.106667,
+      rate: rates.IVA_RET,
       amount: 0,
       baseAmount: 0,
       isWithheld: true,
     },
-    ISR: { code: 'ISR', displayName: TAX_LABELS.ISR, rate: 0.1, amount: 0, baseAmount: 0 },
+    ISR: { code: 'ISR', displayName: TAX_LABELS.ISR, rate: rates.ISR, amount: 0, baseAmount: 0 },
     ISR_RET: {
       code: 'ISR_RET',
       displayName: TAX_LABELS.ISR_RET,
-      rate: 0.1,
+      rate: rates.ISR_RET,
       amount: 0,
       baseAmount: 0,
       isWithheld: true,
@@ -40,9 +59,9 @@ export function calculateTaxLines(lineItems: LineItem[]): TaxLine[] {
   return Object.values(aggregated)
 }
 
-export function summarizeQuote(lineItems: LineItem[]) {
+export function summarizeQuote(lineItems: LineItem[], taxRates?: Partial<QuoteTaxRates>) {
   const subtotal = lineItems.reduce((acc, item) => acc + item.quantity * item.unitPrice - (item.discounts ?? 0), 0)
-  const taxes = calculateTaxLines(lineItems)
+  const taxes = calculateTaxLines(lineItems, taxRates)
   const totalTaxes = taxes.reduce((acc, tax) => acc + tax.amount * (tax.isWithheld ? -1 : 1), 0)
   const grandTotal = subtotal + totalTaxes
 

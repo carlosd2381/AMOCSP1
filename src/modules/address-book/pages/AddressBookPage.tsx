@@ -285,7 +285,7 @@ export function AddressBookPage() {
               placeholder="Search contacts"
               className="input-compact w-full"
             />
-            <button type="button" onClick={() => openCreate()} className="btn-compact-primary inline-flex items-center gap-1">
+            <button type="button" onClick={() => openCreate()} className="btn-compact-primary inline-flex items-center gap-1 whitespace-nowrap px-4">
               <Plus size={14} /> New
             </button>
           </div>

@@ -583,17 +583,30 @@ export async function saveLeadVenueAssignment(input: UpsertLeadVenueInput) {
     throw new Error('Unable to resolve brand for venue assignment')
   }
 
-  const { data: existingAssignment, error: existingAssignmentError } = await supabaseClient
-    .from('lead_venue_assignments')
-    .select('id, venue_profile_id, location_kind, sort_order, status')
-    .eq('id', input.assignmentId ?? '')
-    .maybeSingle()
+  const normalizedAssignmentId = input.assignmentId?.trim() || undefined
+  let existingAssignment: {
+    id: string
+    venue_profile_id: string
+    location_kind: LeadVenueLocationKind
+    sort_order: number
+    status: LeadVenueStatus
+  } | null = null
 
-  if (existingAssignmentError) {
-    if (isMissingRelationError(existingAssignmentError)) {
-      throw new Error('Venue tables are not installed yet. Run supabase/schema.sql and then retry.')
+  if (normalizedAssignmentId) {
+    const { data, error: existingAssignmentError } = await supabaseClient
+      .from('lead_venue_assignments')
+      .select('id, venue_profile_id, location_kind, sort_order, status')
+      .eq('id', normalizedAssignmentId)
+      .maybeSingle()
+
+    if (existingAssignmentError) {
+      if (isMissingRelationError(existingAssignmentError)) {
+        throw new Error('Venue tables are not installed yet. Run supabase/schema.sql and then retry.')
+      }
+      throw existingAssignmentError
     }
-    throw existingAssignmentError
+
+    existingAssignment = data
   }
 
   const selectedVenueProfileId = input.venueProfileId?.trim() || undefined

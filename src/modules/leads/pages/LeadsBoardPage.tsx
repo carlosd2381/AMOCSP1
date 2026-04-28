@@ -14,6 +14,23 @@ import { LeadBoard } from '../components/LeadBoard'
 import toast from 'react-hot-toast'
 import { prefetchLeadProfileRoute, trackRouteNavigation } from '@/routes/routePrefetch'
 import { X } from 'lucide-react'
+import type { ClientLanguage, ClientMarketType } from '@/types'
+
+const LEAD_SOURCE_OPTIONS = [
+  'Facebook',
+  'Instagram',
+  'TikTok',
+  'Facebook Group',
+  'Facebook Ad',
+  'Instagram Ad',
+  'Search Engine',
+  'Online Ad',
+  'Family or friend Referral',
+  'Vendor Referral',
+  'Wedding Planner Referral',
+  'Other Photographer/Cinematographer',
+  'Other',
+] as const
 
 export function LeadsBoardPage() {
   const navigate = useNavigate()
@@ -32,6 +49,8 @@ export function LeadsBoardPage() {
     notes: '',
     source: '',
     type: brand.slug === 'amo' ? 'couple' as const : 'corporate' as const,
+    clientType: 'INT' as ClientMarketType,
+    preferredLanguage: 'en' as ClientLanguage,
   })
 
   const { data, isLoading } = useQuery({
@@ -110,6 +129,8 @@ export function LeadsBoardPage() {
         notes: '',
         source: '',
         type: brand.slug === 'amo' ? 'couple' : 'corporate',
+        clientType: 'INT',
+        preferredLanguage: 'en',
       })
       setIsCreateOpen(false)
       queryClient.invalidateQueries({ queryKey: boardQueryKey })
@@ -226,6 +247,12 @@ export function LeadsBoardPage() {
                     email: createDraft.email.trim(),
                     phone: createDraft.phone.trim() || undefined,
                     type: createDraft.type,
+                    marketProfile: {
+                      clientType: createDraft.clientType,
+                      preferredLanguage: createDraft.preferredLanguage,
+                      preferredCurrency: createDraft.clientType === 'MEX' ? 'MXN' : 'USD',
+                      preferredCatalog: createDraft.clientType === 'MEX' ? 'MEX_MXN_ESP' : 'INT_USD_ENG',
+                    },
                   },
                   eventDate: createDraft.eventDate || undefined,
                   notes: createDraft.notes.trim() || undefined,
@@ -277,12 +304,42 @@ export function LeadsBoardPage() {
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                  className="input-compact w-full"
-                  placeholder="Lead source"
+                <select
+                  className="select-compact w-full"
+                  value={createDraft.clientType}
+                  onChange={(event) => {
+                    const nextType = event.target.value as ClientMarketType
+                    setCreateDraft((previous) => ({
+                      ...previous,
+                      clientType: nextType,
+                      preferredLanguage: nextType === 'MEX' ? 'es' : 'en',
+                    }))
+                  }}
+                >
+                  <option value="INT">Client Type: INT</option>
+                  <option value="MEX">Client Type: MEX</option>
+                </select>
+                <select
+                  className="select-compact w-full"
+                  value={createDraft.preferredLanguage}
+                  onChange={(event) => setCreateDraft((previous) => ({ ...previous, preferredLanguage: event.target.value as ClientLanguage }))}
+                >
+                  <option value="en">Language: English</option>
+                  <option value="es">Language: Spanish</option>
+                </select>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <select
+                  className="select-compact w-full"
                   value={createDraft.source}
                   onChange={(event) => setCreateDraft((previous) => ({ ...previous, source: event.target.value }))}
-                />
+                >
+                  <option value="">Lead source</option>
+                  {LEAD_SOURCE_OPTIONS.map((source) => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
                 <input
                   className="input-compact w-full"
                   placeholder="Notes"

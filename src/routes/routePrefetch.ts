@@ -1,9 +1,15 @@
 const prefetchers: Record<string, () => Promise<unknown>> = {
   '/': () => import('@/modules/dashboard/pages/AdminDashboardPage'),
   '/leads': () => import('@/modules/leads/pages/LeadsBoardPage'),
-  '/quotes': () => import('@/modules/quotes/pages/QuoteBuilderPage'),
-  '/contracts': () => import('@/modules/contracts/pages/ContractEditorPage'),
+  '/quotes': () => import('@/modules/quotes/pages/QuotesListPage'),
+  '/contracts': () => import('@/modules/contracts/pages/ContractsListPage'),
+  '/invoices': () => import('@/modules/invoices/pages/InvoicesListPage'),
   '/galleries': () => import('@/modules/gallery/pages/GalleryOverviewPage'),
+  '/settings': () => import('@/modules/settings/pages/SettingsHomePage'),
+  '/settings/company-details': () => import('@/modules/settings/pages/CompanyDetailsSettingsPage'),
+  '/settings/financials': () => import('@/modules/settings/pages/FinancialSettingsPage'),
+  '/settings/payment-schedules': () => import('@/modules/settings/pages/PaymentSchedulesSettingsPage'),
+  '/settings/products-services': () => import('@/modules/settings/pages/ProductsServicesSettingsPage'),
   '/portal/preview': () => import('@/modules/portal/pages/ClientPortalHome'),
   '/auth/login': () => import('@/modules/auth/pages/LoginPage'),
 }

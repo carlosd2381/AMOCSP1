@@ -1,12 +1,22 @@
 import { supabaseClient } from '@/lib/supabase'
 import { getBrandUuidFromSlug } from '@/lib/brandRegistry'
 import { type BrandSlug } from '@/types'
+import { createContractForEvent } from '@/services/leadDocumentsService'
+import { fetchCompanyDetailsByBrandId } from '@/services/companyDetailsService'
+import { formatEventDate, normalizeTokenValueMap, resolveTemplateTokens } from '@/services/templateTokenRenderingService'
+
+export interface ContractAppliedTemplateMeta {
+  templateId?: string
+  templateName?: string
+  templateTitle?: string
+}
 
 export interface ContractSnapshot {
   id: string
   bodyHtml: string
   signaturePath: string | null
-  variables: Record<string, string>
+  variables: Record<string, string | null>
+  appliedTemplate?: ContractAppliedTemplateMeta
   updatedAt: string
   signedAt: string | null
   pdfUrl: string | null
@@ -14,6 +24,89 @@ export interface ContractSnapshot {
 
 interface ContractQueryOptions {
   eventId?: string
+  contractId?: string
+}
+
+async function buildContractFallbackTokenValues(brandId: string, eventId?: string): Promise<Record<string, string>> {
+  const fallback: Record<string, string> = {}
+
+  const company = await fetchCompanyDetailsByBrandId(brandId)
+  const brandName = company.displayName || company.legalBusinessName
+  if (brandName) {
+    fallback.brand = brandName
+  }
+
+  if (!eventId) {
+    return fallback
+  }
+
+  const { data: eventRow, error: eventError } = await supabaseClient
+    .from('events')
+    .select('lead_id, start_time, location')
+    .eq('id', eventId)
+    .maybeSingle()
+
+  if (eventError) throw eventError
+
+  if (eventRow?.start_time) {
+    fallback.event_date = formatEventDate(eventRow.start_time)
+    fallback.event_time = new Date(eventRow.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (eventRow?.location && typeof eventRow.location === 'object' && !Array.isArray(eventRow.location)) {
+    const address = (eventRow.location as Record<string, unknown>).address
+    if (typeof address === 'string' && address.trim()) {
+      fallback.event_location = address.trim()
+    }
+  }
+
+  if (eventRow?.lead_id) {
+    const { data: leadRow, error: leadError } = await supabaseClient
+      .from('leads')
+      .select('client_id')
+      .eq('id', eventRow.lead_id)
+      .maybeSingle()
+    if (leadError) throw leadError
+
+    const clientId = leadRow?.client_id
+    if (clientId) {
+      const { data: clientRow, error: clientError } = await supabaseClient
+        .from('clients')
+        .select('name')
+        .eq('id', clientId)
+        .maybeSingle()
+      if (clientError) throw clientError
+      if (clientRow?.name) {
+        fallback.client_name = clientRow.name
+      }
+    }
+  }
+
+  return fallback
+}
+
+function extractAppliedTemplateMeta(variables: Record<string, unknown> | null | undefined): ContractAppliedTemplateMeta | undefined {
+  if (!variables) return undefined
+
+  const templateId = typeof variables.selectedContractTemplateId === 'string'
+    ? variables.selectedContractTemplateId.trim()
+    : ''
+  const templateName = typeof variables.contractTemplateName === 'string'
+    ? variables.contractTemplateName.trim()
+    : ''
+  const templateTitle = typeof variables.contractTemplateTitle === 'string'
+    ? variables.contractTemplateTitle.trim()
+    : ''
+
+  if (!templateId && !templateName && !templateTitle) {
+    return undefined
+  }
+
+  return {
+    ...(templateId ? { templateId } : {}),
+    ...(templateName ? { templateName } : {}),
+    ...(templateTitle ? { templateTitle } : {}),
+  }
 }
 
 export async function fetchLatestContract(brandSlug: BrandSlug, options?: ContractQueryOptions): Promise<ContractSnapshot | null> {
@@ -21,13 +114,17 @@ export async function fetchLatestContract(brandSlug: BrandSlug, options?: Contra
 
   let query = supabaseClient
     .from('contracts')
-    .select('id, body_html, signature_img, variables, updated_at, signed_at, pdf_url, event_id')
+    .select('id, body_html, signature_img, variables, updated_at, signed_at, pdf_url, event_id, brand_id')
     .eq('brand_id', brandUuid)
     .order('updated_at', { ascending: false })
     .limit(1)
 
   if (options?.eventId) {
     query = query.eq('event_id', options.eventId)
+  }
+
+  if (options?.contractId) {
+    query = query.eq('id', options.contractId)
   }
 
   const { data, error } = await query.maybeSingle()
@@ -37,14 +134,53 @@ export async function fetchLatestContract(brandSlug: BrandSlug, options?: Contra
   }
 
   if (!data) {
+    if (options?.eventId && !options?.contractId) {
+      const createdId = await createContractForEvent({
+        eventId: options.eventId,
+        brandId: brandUuid,
+      })
+
+      const { data: createdRow, error: createdError } = await supabaseClient
+        .from('contracts')
+        .select('id, body_html, signature_img, variables, updated_at, signed_at, pdf_url, event_id, brand_id')
+        .eq('id', createdId)
+        .maybeSingle()
+
+      if (createdError) {
+        throw createdError
+      }
+
+      if (!createdRow) {
+        return null
+      }
+
+      const fallbackTokens = await buildContractFallbackTokenValues(createdRow.brand_id, createdRow.event_id)
+      const variableTokens = normalizeTokenValueMap((createdRow.variables as Record<string, unknown>) ?? {})
+
+      return {
+        id: createdRow.id,
+        bodyHtml: resolveTemplateTokens(createdRow.body_html, { ...fallbackTokens, ...variableTokens }),
+        signaturePath: createdRow.signature_img,
+        variables: (createdRow.variables as Record<string, string | null>) ?? {},
+        appliedTemplate: extractAppliedTemplateMeta((createdRow.variables as Record<string, unknown>) ?? {}),
+        updatedAt: createdRow.updated_at,
+        signedAt: createdRow.signed_at,
+        pdfUrl: createdRow.pdf_url,
+      }
+    }
+
     return null
   }
 
+  const fallbackTokens = await buildContractFallbackTokenValues(data.brand_id, data.event_id)
+  const variableTokens = normalizeTokenValueMap((data.variables as Record<string, unknown>) ?? {})
+
   return {
     id: data.id,
-    bodyHtml: data.body_html,
+    bodyHtml: resolveTemplateTokens(data.body_html, { ...fallbackTokens, ...variableTokens }),
     signaturePath: data.signature_img,
-    variables: (data.variables as Record<string, string>) ?? {},
+    variables: (data.variables as Record<string, string | null>) ?? {},
+    appliedTemplate: extractAppliedTemplateMeta((data.variables as Record<string, unknown>) ?? {}),
     updatedAt: data.updated_at,
      signedAt: data.signed_at,
      pdfUrl: data.pdf_url,

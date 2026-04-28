@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import SignatureCanvas from 'react-signature-canvas'
 import toast from 'react-hot-toast'
@@ -7,6 +7,8 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { useBranding } from '@/contexts/BrandingContext'
 import { usePortalContext } from '@/hooks/usePortalContext'
 import { fetchLatestContract, saveContractSignature } from '@/services/contractService'
+import { fetchContractPdfSnapshot } from '@/services/documentPdfService'
+import { resolvePdfLogoUrl } from '@/modules/documents/pdf/pdfBranding'
 
 export function PortalContractPage() {
   const { brand } = useBranding()
@@ -15,6 +17,7 @@ export function PortalContractPage() {
   const eventId = portal?.event?.id
   const step = portal?.steps.find((item) => item.key === 'contract')
   const signatureRef = useRef<SignatureCanvas | null>(null)
+  const [isPdfBusy, setIsPdfBusy] = useState(false)
 
   const { data: contract, isLoading } = useQuery({
     queryKey: ['portal-contract', brand.slug, eventId],
@@ -45,6 +48,46 @@ export function PortalContractPage() {
       toast.error('Unable to capture signature right now.')
     },
   })
+
+  const handleContractPdf = async (mode: 'view' | 'download') => {
+    if (!contract?.id) {
+      toast.error('No contract available yet')
+      return
+    }
+
+    try {
+      setIsPdfBusy(true)
+      const snapshot = await fetchContractPdfSnapshot(contract.id)
+      const { createContractPdfBlob, downloadPdfBlob, openPdfBlob } = await import('@/modules/documents/pdf/pdfDocuments')
+      const blob = await createContractPdfBlob({
+        contractId: snapshot.id,
+        status: snapshot.status,
+        updatedAt: snapshot.updatedAt,
+        signedAt: snapshot.signedAt,
+        clientName: snapshot.clientName,
+        clientEmail: snapshot.clientEmail,
+        eventTitle: snapshot.eventTitle ?? undefined,
+        eventDate: snapshot.eventDate,
+        bodyHtml: snapshot.bodyHtml,
+        branding: {
+          label: brand.label,
+          logoUrl: resolvePdfLogoUrl(brand.slug, brand.logo.light),
+          companyDetails: snapshot.companyDetails,
+        },
+      })
+
+      if (mode === 'view') {
+        openPdfBlob(blob)
+      } else {
+        downloadPdfBlob(blob, `contract-${snapshot.id.slice(0, 8)}.pdf`)
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error('Unable to generate contract PDF')
+    } finally {
+      setIsPdfBusy(false)
+    }
+  }
 
   if (step?.status === 'locked') {
     return (
@@ -93,6 +136,24 @@ export function PortalContractPage() {
                 Download signed PDF
               </a>
             )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleContractPdf('view')}
+                disabled={isPdfBusy}
+                className="rounded-2xl border border-border/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-white disabled:opacity-60"
+              >
+                View PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleContractPdf('download')}
+                disabled={isPdfBusy}
+                className="rounded-2xl border border-border/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-white disabled:opacity-60"
+              >
+                Download PDF
+              </button>
+            </div>
           </div>
         )}
       </Card>

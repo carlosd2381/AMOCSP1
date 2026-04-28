@@ -1,10 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Pencil, Trash2, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
-import { type LeadRecord } from '@/types'
+import {
+  DEFAULT_CLIENT_MARKET_PROFILE,
+  type ClientLanguage,
+  type ClientMarketType,
+  type LeadRecord,
+  type PricingCatalogKey,
+} from '@/types'
 import {
   createLeadContact,
   deleteLeadContact,
@@ -21,6 +27,7 @@ import {
   type LeadVenueLocationKind,
 } from '@/services/leadVenueService'
 import { fetchLeadOverviewSnapshot } from '@/services/leadProfileService'
+import { updateLeadProfile } from '@/services/leadService'
 import { LeadTasksCard } from './LeadTasksCard'
 import { LeadActivityFeedCard } from './LeadActivityFeedCard'
 import { type LeadProfileTab } from '@/modules/leads/profile/leadProfileTabs'
@@ -69,6 +76,18 @@ export function LeadOverviewTab({ lead, onSelectTab }: LeadOverviewTabProps) {
   const [newContact, setNewContact] = useState<ContactEditorValues>(initialContactValues())
   const [editingContactId, setEditingContactId] = useState<string | null>(null)
   const [editingContact, setEditingContact] = useState<ContactEditorValues>(initialContactValues())
+  const [marketClientType, setMarketClientType] = useState<ClientMarketType>(lead.client.marketProfile?.clientType ?? 'INT')
+  const [marketLanguage, setMarketLanguage] = useState<ClientLanguage>(lead.client.marketProfile?.preferredLanguage ?? 'en')
+  const [marketCurrency, setMarketCurrency] = useState<'USD' | 'MXN'>(lead.client.marketProfile?.preferredCurrency ?? 'USD')
+  const [marketCatalog, setMarketCatalog] = useState<PricingCatalogKey>(lead.client.marketProfile?.preferredCatalog ?? 'INT_USD_ENG')
+
+  useEffect(() => {
+    const profile = lead.client.marketProfile ?? DEFAULT_CLIENT_MARKET_PROFILE
+    setMarketClientType(profile.clientType)
+    setMarketLanguage(profile.preferredLanguage)
+    setMarketCurrency(profile.preferredCurrency)
+    setMarketCatalog(profile.preferredCatalog)
+  }, [lead.client.marketProfile])
 
   const contactsQuery = useQuery({
     queryKey: ['lead-contacts', lead.id],
@@ -206,6 +225,38 @@ export function LeadOverviewTab({ lead, onSelectTab }: LeadOverviewTabProps) {
     },
   })
 
+  const marketProfileMutation = useMutation({
+    mutationFn: () => updateLeadProfile({
+      leadId: lead.id,
+      clientId: lead.client.id,
+      name: lead.client.name,
+      email: lead.client.email,
+      phone: lead.client.phone,
+      type: lead.client.type,
+      eventDate: lead.eventDate,
+      source: lead.source,
+      notes: lead.notes,
+      status: lead.status,
+      marketProfile: {
+        clientType: marketClientType,
+        preferredLanguage: marketLanguage,
+        preferredCurrency: marketCurrency,
+        preferredCatalog: marketCatalog,
+      },
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lead-profile', lead.id] }),
+        queryClient.invalidateQueries({ queryKey: ['lead-board'] }),
+      ])
+      toast.success('Client market profile updated')
+    },
+    onError: (error) => {
+      console.error(error)
+      toast.error(error instanceof Error ? error.message : 'Unable to update market profile')
+    },
+  })
+
   const allContacts = contactsQuery.data ?? []
   const venueAssignments = venueQuery.data ?? []
   const hasVenueDetails = venueAssignments.length > 0
@@ -224,9 +275,103 @@ export function LeadOverviewTab({ lead, onSelectTab }: LeadOverviewTabProps) {
     queryFn: () => fetchLeadOverviewSnapshot(lead.id),
   })
 
+  const nextBookingStep = (snapshotQuery.data?.bookingProgress.steps ?? []).find((step) => step.status !== 'complete')
+
+  const handleBookingStepAction = (stepKey: 'quote' | 'questionnaire' | 'contract' | 'invoice') => {
+    if (stepKey === 'quote') {
+      navigate(`/quotes/new?leadId=${encodeURIComponent(lead.id)}`)
+      return
+    }
+
+    if (stepKey === 'questionnaire') {
+      onSelectTab?.('questionnaires')
+      return
+    }
+
+    if (stepKey === 'contract') {
+      onSelectTab?.('contracts')
+      return
+    }
+
+    onSelectTab?.('quotes-orders')
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <div className="space-y-4 xl:col-span-2">
+        <Card
+          className="p-4"
+          title={<h2 className="text-2xl font-semibold text-white">Client Market Profile</h2>}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-brand-muted">
+              These defaults sync into Quote Builder and can be overridden per quote.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-brand-muted">
+                Client Type
+                <select
+                  className="select-compact w-full"
+                  value={marketClientType}
+                  onChange={(event) => {
+                    const nextType = event.target.value as ClientMarketType
+                    setMarketClientType(nextType)
+                    setMarketLanguage(nextType === 'MEX' ? 'es' : 'en')
+                    setMarketCurrency(nextType === 'MEX' ? 'MXN' : 'USD')
+                    setMarketCatalog(nextType === 'MEX' ? 'MEX_MXN_ESP' : 'INT_USD_ENG')
+                  }}
+                >
+                  <option value="INT">INT</option>
+                  <option value="MEX">MEX</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-brand-muted">
+                Language
+                <select
+                  className="select-compact w-full"
+                  value={marketLanguage}
+                  onChange={(event) => setMarketLanguage(event.target.value as ClientLanguage)}
+                >
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-brand-muted">
+                Currency Default
+                <select
+                  className="select-compact w-full"
+                  value={marketCurrency}
+                  onChange={(event) => setMarketCurrency(event.target.value as 'USD' | 'MXN')}
+                >
+                  <option value="USD">USD</option>
+                  <option value="MXN">MXN</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-brand-muted">
+                Pricing Catalog
+                <select
+                  className="select-compact w-full"
+                  value={marketCatalog}
+                  onChange={(event) => setMarketCatalog(event.target.value as PricingCatalogKey)}
+                >
+                  <option value="INT_USD_ENG">International Pricing (USD-ENG)</option>
+                  <option value="MEX_MXN_ESP">National Pricing (MXN-ESP)</option>
+                </select>
+              </label>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="btn-compact-primary"
+                onClick={() => void marketProfileMutation.mutateAsync()}
+                disabled={marketProfileMutation.isPending}
+              >
+                {marketProfileMutation.isPending ? 'Saving…' : 'Save Market Defaults'}
+              </button>
+            </div>
+          </div>
+        </Card>
+
         <Card
           className="p-4"
           title={<h2 className="text-3xl font-semibold text-white">Venues</h2>}
@@ -717,6 +862,64 @@ export function LeadOverviewTab({ lead, onSelectTab }: LeadOverviewTabProps) {
         {snapshotQuery.isLoading ? <p className="text-sm text-brand-muted">Loading overview…</p> : null}
         {!snapshotQuery.isLoading ? (
           <div className="space-y-3">
+            <div className="rounded-xl border border-border/40 bg-surface-muted/20 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs uppercase tracking-[0.16em] text-brand-muted">Booking Progress</p>
+                <span className="rounded-md border border-border/40 px-1.5 py-0.5 text-[11px] text-brand-muted">
+                  {snapshotQuery.data?.bookingProgress.completedCount ?? 0}/{snapshotQuery.data?.bookingProgress.totalCount ?? 4}
+                </span>
+              </div>
+              <p className="mb-2 text-xs text-brand-muted">Quote &gt; Questionnaire &gt; Contract &gt; Invoice(s)</p>
+              {nextBookingStep ? (
+                <div className="mb-2 flex items-center justify-between border border-brand-primary/30 bg-brand-primary/10 px-2.5 py-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-brand-muted">Next Recommended Step</p>
+                    <p className="text-sm text-white">{nextBookingStep.label}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-compact-primary"
+                    onClick={() => handleBookingStepAction(nextBookingStep.key)}
+                  >
+                    Open
+                  </button>
+                </div>
+              ) : (
+                <div className="mb-2 border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-2 text-xs text-emerald-200">
+                  Booking flow complete. All core milestones are finished.
+                </div>
+              )}
+              <div className="space-y-2">
+                {(snapshotQuery.data?.bookingProgress.steps ?? []).map((step) => (
+                  <div key={step.key} className="flex items-start justify-between gap-2 border border-border/30 px-2.5 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-white">{step.label}</p>
+                      <p className="text-xs text-brand-muted">{step.detail}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={[
+                        'rounded-md px-2 py-0.5 text-[11px] uppercase tracking-[0.08em]',
+                        step.status === 'complete'
+                          ? 'border border-emerald-400/40 text-emerald-300'
+                          : step.status === 'in_progress'
+                            ? 'border border-amber-400/40 text-amber-300'
+                            : 'border border-border/40 text-brand-muted',
+                      ].join(' ')}>
+                        {step.status === 'complete' ? 'Complete' : step.status === 'in_progress' ? 'In Progress' : 'Pending'}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-compact-secondary"
+                        onClick={() => handleBookingStepAction(step.key)}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-xl border border-border/40 bg-surface-muted/20 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs uppercase tracking-[0.16em] text-brand-muted">Agenda</p>

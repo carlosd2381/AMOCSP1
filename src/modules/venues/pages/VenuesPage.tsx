@@ -202,9 +202,9 @@ export function VenuesPage() {
             <button
               type="button"
               onClick={() => setIsCreateOpen(true)}
-              className="btn-compact-primary inline-flex items-center gap-1"
+              className="btn-compact-primary inline-flex items-center gap-1 whitespace-nowrap px-4"
             >
-              <Plus size={13} /> Add Venue +
+              <Plus size={13} /> Add Venue
             </button>
           </div>
 

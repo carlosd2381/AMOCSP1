@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Building2, CalendarPlus, FileText, FileSignature, ImageDown, Kanban, LayoutDashboard, ListTodo, NotebookPen, Plus, Users2 } from 'lucide-react'
+import { Building2, CalendarPlus, FileText, FileSignature, ImageDown, Kanban, LayoutDashboard, ListTodo, NotebookPen, Plus, Settings, Users2 } from 'lucide-react'
 import AmoStudioLogo from '../../../images/AmoStudio_LOGO_2021-01.png'
 import clsx from 'clsx'
 import { useBranding } from '@/contexts/BrandingContext'
@@ -21,8 +21,10 @@ const NAV_ITEMS = [
   { label: 'Venues', to: '/venues', icon: Building2 },
   { label: 'Quotes', to: '/quotes', icon: FileText },
   { label: 'Contracts', to: '/contracts', icon: FileSignature },
+  { label: 'Invoices', to: '/invoices', icon: ListTodo },
   { label: 'Galleries', to: '/galleries', icon: ImageDown },
   { label: 'Client Portal', to: '/portal/preview', icon: Users2 },
+  { label: 'Settings', to: '/settings', icon: Settings },
 ]
 
 interface LeadQuickDraft {

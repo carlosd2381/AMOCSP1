@@ -39,6 +39,162 @@ export interface Database {
         }
         Relationships: []
       }
+      brand_catalog_services: {
+        Row: {
+          id: string
+          brand_id: string
+          name: string
+          name_es: string | null
+          description: string
+          description_es: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          brand_id: string
+          name: string
+          name_es?: string | null
+          description?: string
+          description_es?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          name?: string
+          name_es?: string | null
+          description?: string
+          description_es?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      brand_service_pricing_tiers: {
+        Row: {
+          id: string
+          brand_id: string
+          service_id: string
+          catalog_key: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          hours: number
+          cost: number
+          price: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          brand_id: string
+          service_id: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          hours: number
+          cost?: number
+          price?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          service_id?: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          hours?: number
+          cost?: number
+          price?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      brand_package_presets: {
+        Row: {
+          id: string
+          brand_id: string
+          catalog_key: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          name: string
+          description: string
+          is_active: boolean
+          package_hourly_price: number | null
+          hourly_price_by_hour: Json | null
+          components: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          brand_id: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          name: string
+          description?: string
+          is_active?: boolean
+          package_hourly_price?: number | null
+          hourly_price_by_hour?: Json | null
+          components?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          name?: string
+          description?: string
+          is_active?: boolean
+          package_hourly_price?: number | null
+          hourly_price_by_hour?: Json | null
+          components?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      brand_pricing_input_profiles: {
+        Row: {
+          id: string
+          brand_id: string
+          catalog_key: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          admin_percent: number
+          sales_percent: number
+          planner_percent: number
+          profit_percent: number
+          payment_fee_percent: number
+          tax_percent: number
+          include_tax_in_sell_price: boolean
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          brand_id: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          admin_percent?: number
+          sales_percent?: number
+          planner_percent?: number
+          profit_percent?: number
+          payment_fee_percent?: number
+          tax_percent?: number
+          include_tax_in_sell_price?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          catalog_key?: 'INT_USD_ENG' | 'MEX_MXN_ESP'
+          admin_percent?: number
+          sales_percent?: number
+          planner_percent?: number
+          profit_percent?: number
+          payment_fee_percent?: number
+          tax_percent?: number
+          include_tax_in_sell_price?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           id: string
@@ -439,13 +595,16 @@ export interface Database {
         Row: {
           id: string
           lead_id: string
+          event_id: string | null
           brand_id: string
           title: string
           category: string | null
           amount: number
           currency: string
           due_date: string | null
+          paid_at: string | null
           status: 'planned' | 'scheduled' | 'paid' | 'cancelled'
+          source: 'manual' | 'package_component' | 'commission' | 'adjustment'
           notes: string | null
           created_at: string
           updated_at: string
@@ -453,13 +612,16 @@ export interface Database {
         Insert: {
           id?: string
           lead_id: string
+          event_id?: string | null
           brand_id: string
           title: string
           category?: string | null
           amount?: number
           currency?: string
           due_date?: string | null
+          paid_at?: string | null
           status?: 'planned' | 'scheduled' | 'paid' | 'cancelled'
+          source?: 'manual' | 'package_component' | 'commission' | 'adjustment'
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -467,13 +629,16 @@ export interface Database {
         Update: {
           id?: string
           lead_id?: string
+          event_id?: string | null
           brand_id?: string
           title?: string
           category?: string | null
           amount?: number
           currency?: string
           due_date?: string | null
+          paid_at?: string | null
           status?: 'planned' | 'scheduled' | 'paid' | 'cancelled'
+          source?: 'manual' | 'package_component' | 'commission' | 'adjustment'
           notes?: string | null
           created_at?: string
           updated_at?: string

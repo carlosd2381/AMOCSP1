@@ -1,7 +1,16 @@
 import { supabaseClient } from '@/lib/supabase'
 import type { Database } from '@/lib/database.types'
 import { getBrandSlugFromUuid, getBrandUuidFromSlug } from '@/lib/brandRegistry'
-import { type BrandSlug, type LeadRecord, type LeadStatus } from '@/types'
+import {
+  DEFAULT_CLIENT_MARKET_PROFILE,
+  type BrandSlug,
+  type ClientLanguage,
+  type ClientMarketProfile,
+  type ClientMarketType,
+  type LeadRecord,
+  type LeadStatus,
+  type PricingCatalogKey,
+} from '@/types'
 import { ensureAddressBookContactForLeadClient } from '@/services/addressBookService'
 
 type LeadRow = Database['public']['Tables']['leads']['Row']
@@ -10,6 +19,15 @@ type PublicTableName = keyof Database['public']['Tables']
 
 interface LeadRowWithClient extends LeadRow {
   clients: ClientRow | null
+}
+
+interface MarketProfileAddressPayload {
+  market?: {
+    clientType?: ClientMarketType
+    preferredLanguage?: ClientLanguage
+    preferredCurrency?: 'USD' | 'MXN'
+    preferredCatalog?: PricingCatalogKey
+  }
 }
 
 export interface LeadDeletionImpact {
@@ -60,7 +78,7 @@ export async function fetchLeadBoard(brandSlug?: BrandSlug) {
     .from('leads')
     .select(
       `id, status, event_date, inquiry_notes, source, brand_id, clients:client_id (
-        id, name, email, phone, type, brand_id
+        id, name, email, phone, type, brand_id, address
       )`,
     )
     .order('updated_at', { ascending: false })
@@ -139,6 +157,7 @@ export async function fetchLeadBoard(brandSlug?: BrandSlug) {
           brandId: client?.brand_id ?? undefined,
           brandSlug: brandSlugForClient,
           type: client?.type ?? 'couple',
+          marketProfile: resolveClientMarketProfile(client?.address),
         },
       }
 
@@ -154,7 +173,7 @@ export async function fetchLeadById(leadId: string) {
     .from('leads')
     .select(
       `id, status, event_date, inquiry_notes, source, brand_id, clients:client_id (
-        id, name, email, phone, type, brand_id
+        id, name, email, phone, type, brand_id, address
       )`,
     )
     .eq('id', leadId)
@@ -206,6 +225,7 @@ export async function fetchLeadById(leadId: string) {
       brandId: client?.brand_id ?? undefined,
       brandSlug: brandSlugForClient,
       type: client?.type ?? 'couple',
+      marketProfile: resolveClientMarketProfile(client?.address),
     },
   }
 
@@ -218,6 +238,7 @@ export interface CreateLeadInput {
     email: string
     phone?: string
     type: 'couple' | 'corporate'
+    marketProfile?: Partial<ClientMarketProfile>
   }
   eventDate?: string
   notes?: string
@@ -236,6 +257,7 @@ export async function createLead(payload: CreateLeadInput) {
       email: payload.client.email,
       phone: payload.client.phone ?? null,
       type: payload.client.type,
+      address: buildClientAddressMarketPayload(payload.client.marketProfile),
     })
     .select()
     .single()
@@ -283,6 +305,7 @@ export async function createLead(payload: CreateLeadInput) {
       brandId: clientRow.brand_id,
       brandSlug: payload.brandSlug,
       type: clientRow.type,
+      marketProfile: resolveClientMarketProfile(clientRow.address),
     },
   }
 
@@ -312,6 +335,7 @@ export interface UpdateLeadProfileInput {
   email: string
   phone?: string
   type: 'couple' | 'corporate'
+  marketProfile?: Partial<ClientMarketProfile>
   eventDate?: string
   source?: string
   notes?: string
@@ -326,9 +350,10 @@ export async function updateLeadProfile(payload: UpdateLeadProfileInput) {
       email: payload.email,
       phone: payload.phone?.trim() ? payload.phone.trim() : null,
       type: payload.type,
+      address: buildClientAddressMarketPayload(payload.marketProfile),
     })
     .eq('id', payload.clientId)
-    .select('id, name, email, phone, type, brand_id')
+    .select('id, name, email, phone, type, brand_id, address')
     .single()
 
   if (clientError || !clientRow) {
@@ -368,10 +393,52 @@ export async function updateLeadProfile(payload: UpdateLeadProfileInput) {
       brandId: clientRow.brand_id,
       brandSlug,
       type: clientRow.type,
+      marketProfile: resolveClientMarketProfile(clientRow.address),
     },
   }
 
   return updated
+}
+
+function buildClientAddressMarketPayload(profile?: Partial<ClientMarketProfile>): Database['public']['Tables']['clients']['Insert']['address'] {
+  const normalized = normalizeClientMarketProfile(profile)
+  return {
+    market: {
+      clientType: normalized.clientType,
+      preferredLanguage: normalized.preferredLanguage,
+      preferredCurrency: normalized.preferredCurrency,
+      preferredCatalog: normalized.preferredCatalog,
+    },
+  }
+}
+
+function resolveClientMarketProfile(address: ClientRow['address'] | undefined): ClientMarketProfile {
+  if (!address || typeof address !== 'object' || Array.isArray(address)) {
+    return DEFAULT_CLIENT_MARKET_PROFILE
+  }
+
+  const payload = address as MarketProfileAddressPayload
+  return normalizeClientMarketProfile(payload.market)
+}
+
+function normalizeClientMarketProfile(profile?: Partial<ClientMarketProfile>): ClientMarketProfile {
+  const clientType = profile?.clientType === 'MEX' ? 'MEX' : 'INT'
+  const preferredLanguage = profile?.preferredLanguage === 'es'
+    ? 'es'
+    : (clientType === 'MEX' ? 'es' : 'en')
+  const preferredCurrency = profile?.preferredCurrency === 'MXN'
+    ? 'MXN'
+    : (clientType === 'MEX' ? 'MXN' : 'USD')
+  const preferredCatalog: PricingCatalogKey = profile?.preferredCatalog === 'MEX_MXN_ESP'
+    ? 'MEX_MXN_ESP'
+    : (clientType === 'MEX' ? 'MEX_MXN_ESP' : 'INT_USD_ENG')
+
+  return {
+    clientType,
+    preferredLanguage,
+    preferredCurrency,
+    preferredCatalog,
+  }
 }
 
 export async function fetchLeadDeletionImpact(leadId: string): Promise<LeadDeletionImpact> {

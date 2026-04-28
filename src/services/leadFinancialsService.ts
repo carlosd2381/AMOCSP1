@@ -1,6 +1,7 @@
 import { supabaseClient } from '@/lib/supabase'
 import { getBrandUuidFromSlug } from '@/lib/brandRegistry'
 import { type BrandSlug } from '@/types'
+import { resolveFinancialDefaultCurrency, resolveLeadDefaultCurrency } from '@/services/financialCurrencyService'
 
 export interface LeadLedgerInvoice {
   id: string
@@ -24,12 +25,15 @@ export interface LeadLedgerPayment {
 
 export interface LeadPayableItem {
   id: string
+  eventId: string | null
   title: string
   category: string | null
   amount: number
   currency: string
   dueDate: string | null
+  paidAt: string | null
   status: 'planned' | 'scheduled' | 'paid' | 'cancelled'
+  source: 'manual' | 'package_component' | 'commission' | 'adjustment'
   notes: string | null
   createdAt: string
 }
@@ -46,6 +50,8 @@ export interface LeadFinancialsSnapshot {
 }
 
 export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancialsSnapshot> {
+  const defaultCurrency = await resolveLeadDefaultCurrency(leadId)
+
   const { data: events, error: eventsError } = await supabaseClient
     .from('events')
     .select('id')
@@ -67,7 +73,7 @@ export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancial
       : Promise.resolve({ data: [], error: null }),
     supabaseClient
       .from('lead_payables')
-      .select('id, title, category, amount, currency, due_date, status, notes, created_at')
+      .select('id, event_id, title, category, amount, currency, due_date, paid_at, status, source, notes, created_at')
       .eq('lead_id', leadId)
       .order('due_date', { ascending: true })
       .order('created_at', { ascending: true }),
@@ -82,7 +88,7 @@ export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancial
     status: row.status,
     totalAmount: row.total_amount ?? 0,
     amountDue: row.amount_due ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
     issuedAt: row.issued_at,
   }))
 
@@ -102,7 +108,7 @@ export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancial
     id: row.id,
     invoiceId: row.invoice_id,
     amount: row.amount ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
     status: row.status,
     provider: row.provider,
     createdAt: row.created_at,
@@ -110,12 +116,15 @@ export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancial
 
   const payables: LeadPayableItem[] = (payablesResult.data ?? []).map((row) => ({
     id: row.id,
+    eventId: row.event_id,
     title: row.title,
     category: row.category,
     amount: row.amount ?? 0,
-    currency: row.currency ?? 'MXN',
+    currency: row.currency ?? defaultCurrency,
     dueDate: row.due_date,
+    paidAt: row.paid_at,
     status: row.status,
+    source: row.source,
     notes: row.notes,
     createdAt: row.created_at,
   }))
@@ -136,12 +145,14 @@ export async function fetchLeadFinancials(leadId: string): Promise<LeadFinancial
 
 interface CreateLeadPayableInput {
   leadId: string
+  eventId?: string
   title: string
   amount: number
   category?: string
   dueDate?: string
   notes?: string
   currency?: string
+  source?: 'manual' | 'package_component' | 'commission' | 'adjustment'
   brandId?: string
   brandSlug?: BrandSlug
 }
@@ -159,27 +170,35 @@ export async function createLeadPayable(input: CreateLeadPayableInput) {
     throw new Error('Unable to resolve brand for payable')
   }
 
+  const defaultCurrency = await resolveFinancialDefaultCurrency(brandId)
+
   const { error } = await supabaseClient
     .from('lead_payables')
     .insert({
       lead_id: input.leadId,
+      event_id: input.eventId ?? null,
       brand_id: brandId,
       title,
       amount: input.amount,
       category: input.category?.trim() || null,
       due_date: input.dueDate || null,
+      paid_at: null,
       notes: input.notes?.trim() || null,
-      currency: input.currency || 'MXN',
+      currency: input.currency || defaultCurrency,
       status: 'planned',
+      source: input.source ?? 'manual',
     })
 
   if (error) throw error
 }
 
-export async function updateLeadPayableStatus(payableId: string, status: LeadPayableItem['status']) {
+export async function updateLeadPayableStatus(payableId: string, status: LeadPayableItem['status'], paidAt?: string | null) {
   const { error } = await supabaseClient
     .from('lead_payables')
-    .update({ status })
+    .update({
+      status,
+      paid_at: status === 'paid' ? (paidAt || new Date().toISOString().slice(0, 10)) : null,
+    })
     .eq('id', payableId)
 
   if (error) throw error
@@ -193,3 +212,4 @@ export async function deleteLeadPayable(payableId: string) {
 
   if (error) throw error
 }
+

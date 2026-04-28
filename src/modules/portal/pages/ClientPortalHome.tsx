@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useBranding } from '@/contexts/BrandingContext'
 import { useQuery } from '@tanstack/react-query'
+import { formatCurrencyAmount } from '@/lib/currency'
 import { fetchPortalTimeline, type PortalEventMeta, type PortalStep } from '@/services/portalService'
 import { usePortalContext } from '@/hooks/usePortalContext'
 
@@ -21,9 +22,11 @@ export function ClientPortalHome({ isPreview = false }: ClientPortalHomeProps) {
   })
   const timeline = data ?? []
   const steps = portalContext?.steps ?? []
+  const bookingMilestones = buildBookingMilestones(steps)
+  const nextMilestone = bookingMilestones.find((step) => step.status !== 'completed')
   const eventWindow = describeEventWindow(portalContext?.event ?? null)
   const proposalTotal = portalContext?.proposal
-    ? formatCurrency(portalContext.proposal.totalAmount, portalContext.proposal.currency)
+    ? formatCurrencyAmount(portalContext.proposal.totalAmount, portalContext.proposal.currency)
     : null
 
   return (
@@ -50,6 +53,41 @@ export function ClientPortalHome({ isPreview = false }: ClientPortalHomeProps) {
               hint={portalContext.proposal ? portalContext.proposal.status.toUpperCase() : 'Drafting'}
             />
             <SnapshotStat label="Event window" value={eventWindow.title} hint={eventWindow.hint} />
+          </div>
+        </Card>
+      )}
+      {portalContext && (
+        <Card title="Booking milestones">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-brand-muted">Quote &gt; Questionnaire &gt; Contract &gt; Invoice(s)</p>
+            {nextMilestone ? (
+              <div className="flex items-center justify-between border border-brand-primary/30 bg-brand-primary/10 px-3 py-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-brand-muted">Next step</p>
+                  <p className="text-sm text-white">{nextMilestone.label}</p>
+                </div>
+                <Link to={nextMilestone.href} className="btn-compact-primary">
+                  Open
+                </Link>
+              </div>
+            ) : (
+              <div className="border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+                Core booking milestones complete.
+              </div>
+            )}
+            <div className="space-y-2">
+              {bookingMilestones.map((step) => (
+                <div key={step.key} className="flex items-center justify-between border border-border/30 px-3 py-2">
+                  <div>
+                    <p className="text-sm text-white">{step.label}</p>
+                    <p className="text-xs text-brand-muted">{step.statusLabel}</p>
+                  </div>
+                  <Link to={step.href} className="btn-compact-secondary">
+                    Open
+                  </Link>
+                </div>
+              ))}
+            </div>
           </div>
         </Card>
       )}
@@ -156,9 +194,24 @@ function describeEventWindow(event: PortalEventMeta | null) {
   }
 }
 
-function formatCurrency(amount: number, currency: string) {
-  return amount.toLocaleString('es-MX', {
-    style: 'currency',
-    currency,
+function buildBookingMilestones(steps: PortalStep[]) {
+  const milestoneMap: Array<{ key: PortalStep['key']; label: string }> = [
+    { key: 'proposal', label: 'Quote' },
+    { key: 'questionnaire', label: 'Questionnaire' },
+    { key: 'contract', label: 'Contract' },
+    { key: 'invoices', label: 'Invoice(s)' },
+  ]
+
+  return milestoneMap.map((milestone) => {
+    const step = steps.find((item) => item.key === milestone.key)
+    const status = step?.status ?? 'locked'
+    const statusLabel = status === 'completed' ? 'Complete' : status === 'available' ? 'In Progress' : 'Pending'
+    return {
+      key: milestone.key,
+      label: milestone.label,
+      href: step?.href ?? '/portal',
+      status,
+      statusLabel,
+    }
   })
 }
