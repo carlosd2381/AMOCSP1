@@ -62,6 +62,12 @@ const OPTION_BASED_TYPES: QuestionnaireFieldType[] = [
   'radio_buttons',
 ]
 
+const RECOMMENDED_CLIENT_TOKEN_KEYS = [
+  'client_name',
+  'client_email',
+  'client_phone',
+]
+
 function requiresOptions(type: QuestionnaireFieldType) {
   return OPTION_BASED_TYPES.includes(type)
 }
@@ -470,6 +476,26 @@ export function QuestionnaireTemplatesSettingsPage() {
                             placeholder="client_phone"
                             disabled={disabled}
                           />
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {RECOMMENDED_CLIENT_TOKEN_KEYS.map((tokenKey) => (
+                              <button
+                                key={`${field.id}-${tokenKey}`}
+                                type="button"
+                                onClick={() => updateField(activeTemplate.id, field.id, (current) => ({
+                                  ...current,
+                                  clientTokenKey: tokenKey,
+                                }))}
+                                className={`rounded border px-2 py-0.5 text-[10px] normal-case tracking-normal ${
+                                  (field.clientTokenKey ?? '') === tokenKey
+                                    ? 'border-brand-primary text-white bg-brand-primary/20'
+                                    : 'border-border/40 text-brand-muted bg-surface-muted/20'
+                                }`}
+                                disabled={disabled}
+                              >
+                                {tokenKey}
+                              </button>
+                            ))}
+                          </div>
                         </label>
 
                         <label className="mt-5 inline-flex items-center gap-2 text-xs text-white">
