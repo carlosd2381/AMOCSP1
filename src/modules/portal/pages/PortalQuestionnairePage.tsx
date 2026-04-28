@@ -1,33 +1,18 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Card } from '@/components/ui/Card'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { usePortalContext } from '@/hooks/usePortalContext'
 import { useBranding } from '@/contexts/BrandingContext'
+import { fetchLatestProposal } from '@/services/proposalService'
 import { fetchQuestionnaire, saveQuestionnaire, type QuestionnaireFormValues } from '@/services/questionnaireService'
-
-const QuestionnaireSchema: z.ZodType<QuestionnaireFormValues> = z.object({
-  clientNames: z.string().min(3, 'Please share your full names.'),
-  clientEmail: z.string().email('Valid email required.'),
-  plannerName: z.string().min(3),
-  plannerEmail: z.string().email('Enter a planner email.'),
-  plannerPhone: z.string().min(8, 'We use this the day of the event.'),
-  eventTitle: z.string().min(3),
-  startDate: z.string().min(1, 'Select the event date.'),
-  startTime: z.string().min(1, 'Start time helps us plan crew call time.'),
-  endTime: z.string().optional().default(''),
-  ceremonyLocation: z.string().min(3),
-  receptionLocation: z.string().optional().default(''),
-  guestCount: z.preprocess(
-    (value) => (typeof value === 'number' && !Number.isNaN(value) ? value : null),
-    z.number().nullable(),
-  ),
-  notes: z.string().optional().default(''),
-})
+import {
+  fetchQuestionnaireTemplateSettings,
+  type QuestionnaireTemplateDefinition,
+  type QuestionnaireTemplateField,
+} from '@/services/questionnaireTemplateSettingsService'
 
 const EMPTY_VALUES: QuestionnaireFormValues = {
   clientNames: '',
@@ -53,6 +38,8 @@ export function PortalQuestionnairePage() {
   const queryClient = useQueryClient()
   const { data: portal, isLoading: isPortalLoading } = usePortalContext()
   const eventId = portal?.event?.id
+  const proposalId = portal?.proposal?.id
+  const leadId = portal?.lead?.id
   const step = portal?.steps.find((item) => item.key === 'questionnaire')
 
   const { data: snapshot, isLoading } = useQuery({
@@ -64,9 +51,39 @@ export function PortalQuestionnairePage() {
     enabled: Boolean(eventId),
   })
 
+  const questionnaireTemplateSettingsQuery = useQuery({
+    queryKey: ['settings-questionnaire-templates', brand.slug],
+    queryFn: () => fetchQuestionnaireTemplateSettings(brand.slug),
+  })
+
+  const proposalQuery = useQuery({
+    queryKey: ['portal-selected-questionnaire-template', brand.slug, proposalId, leadId],
+    queryFn: () => fetchLatestProposal(brand.slug, proposalId ? { proposalId } : { leadId }),
+    enabled: Boolean(proposalId || leadId),
+  })
+
+  const selectedTemplate = useMemo(() => {
+    const templates = questionnaireTemplateSettingsQuery.data?.templates ?? []
+    if (!templates.length) return null
+
+    const selectedTemplateId = proposalQuery.data?.selectedQuestionnaireTemplateId
+    if (selectedTemplateId) {
+      const matched = templates.find((template) => template.id === selectedTemplateId)
+      if (matched) return matched
+    }
+
+    if (!questionnaireTemplateSettingsQuery.data?.applyByDefaultWhenMissing) {
+      return null
+    }
+
+    return templates.find((template) => template.isDefault) ?? templates[0]
+  }, [
+    questionnaireTemplateSettingsQuery.data?.applyByDefaultWhenMissing,
+    questionnaireTemplateSettingsQuery.data?.templates,
+    proposalQuery.data?.selectedQuestionnaireTemplateId,
+  ])
+
   const form = useForm<QuestionnaireFormValues>({
-    // @ts-expect-error zodResolver typing conflicts with branded form value shape
-    resolver: zodResolver(QuestionnaireSchema),
     defaultValues: snapshot?.values ?? EMPTY_VALUES,
   })
 
@@ -104,12 +121,19 @@ export function PortalQuestionnairePage() {
 
   const submitFinal = form.handleSubmit((values) => {
     if (!eventId) return
-    mutation.mutate({ submit: true, values: normalizeValues(values as unknown as QuestionnaireFormValues) })
+    const normalizedValues = normalizeValues(values)
+    const requiredMessage = validateTemplateRequirements(selectedTemplate, normalizedValues)
+    if (requiredMessage) {
+      toast.error(requiredMessage)
+      return
+    }
+
+    mutation.mutate({ submit: true, values: normalizedValues })
   })
 
   const saveDraft = form.handleSubmit((values) => {
     if (!eventId) return
-    mutation.mutate({ submit: false, values: normalizeValues(values as unknown as QuestionnaireFormValues) })
+    mutation.mutate({ submit: false, values: normalizeValues(values) })
   })
 
   if (!eventId && !isPortalLoading) {
@@ -141,62 +165,24 @@ export function PortalQuestionnairePage() {
         <p className="text-sm text-brand-muted">Creating questionnaire shell…</p>
       ) : (
         <form className="space-y-6" onSubmit={submitFinal}>
-          <section className="grid gap-4 md:grid-cols-2">
-            <Field label="Client names">
-              <input className={INPUT_CLASS} placeholder="Couple or company" {...form.register('clientNames')} />
-              <FieldError message={form.formState.errors.clientNames?.message} />
-            </Field>
-            <Field label="Best email">
-              <input className={INPUT_CLASS} placeholder="client@email.com" {...form.register('clientEmail')} />
-              <FieldError message={form.formState.errors.clientEmail?.message} />
-            </Field>
-            <Field label="Planner name">
-              <input className={INPUT_CLASS} placeholder="Planner or concierge" {...form.register('plannerName')} />
-              <FieldError message={form.formState.errors.plannerName?.message} />
-            </Field>
-            <Field label="Planner email">
-              <input className={INPUT_CLASS} placeholder="planner@email.com" {...form.register('plannerEmail')} />
-              <FieldError message={form.formState.errors.plannerEmail?.message} />
-            </Field>
-            <Field label="Planner phone">
-              <input className={INPUT_CLASS} placeholder="+52 555 000 0000" {...form.register('plannerPhone')} />
-              <FieldError message={form.formState.errors.plannerPhone?.message} />
-            </Field>
-            <Field label="Guest count">
-              <input type="number" className={INPUT_CLASS} {...form.register('guestCount', { valueAsNumber: true })} />
-            </Field>
-          </section>
-
-          <section className="grid gap-4 md:grid-cols-3">
-            <Field label="Event title">
-              <input className={INPUT_CLASS} placeholder="Luisa & Diego — Valle" {...form.register('eventTitle')} />
-              <FieldError message={form.formState.errors.eventTitle?.message} />
-            </Field>
-            <Field label="Start date">
-              <input type="date" className={INPUT_CLASS} {...form.register('startDate')} />
-              <FieldError message={form.formState.errors.startDate?.message} />
-            </Field>
-            <Field label="Start time">
-              <input type="time" className={INPUT_CLASS} {...form.register('startTime')} />
-              <FieldError message={form.formState.errors.startTime?.message} />
-            </Field>
-            <Field label="End time">
-              <input type="time" className={INPUT_CLASS} {...form.register('endTime')} />
-            </Field>
-            <Field label="Ceremony location">
-              <input className={INPUT_CLASS} placeholder="Venue or address" {...form.register('ceremonyLocation')} />
-              <FieldError message={form.formState.errors.ceremonyLocation?.message} />
-            </Field>
-            <Field label="Reception location">
-              <input className={INPUT_CLASS} placeholder="If different" {...form.register('receptionLocation')} />
-            </Field>
-          </section>
-
-          <section>
-            <Field label="Notes & timeline">
-              <textarea rows={5} className={TEXTAREA_CLASS} placeholder="Share planners, timelines, traditions, or special requests." {...form.register('notes')} />
-            </Field>
-          </section>
+          {selectedTemplate ? (
+            <div className="space-y-4">
+              <div className="border border-border/30 bg-surface-muted/20 p-3 text-xs text-brand-muted">
+                <p className="font-semibold uppercase tracking-[0.2em]">Template in use</p>
+                <p className="mt-1 text-white">{selectedTemplate.name}</p>
+                {selectedTemplate.description ? <p className="mt-1">{selectedTemplate.description}</p> : null}
+              </div>
+              <section className="grid gap-4 md:grid-cols-2">
+                {selectedTemplate.fields.map((field) => (
+                  <TemplateField key={field.id} field={field} form={form} />
+                ))}
+              </section>
+            </div>
+          ) : (
+            <p className="text-sm text-brand-muted">
+              No questionnaire template could be selected for this proposal. Configure templates in settings or set a default.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-3">
             <button
@@ -222,22 +208,160 @@ export function PortalQuestionnairePage() {
 }
 
 function normalizeValues(values: QuestionnaireFormValues): QuestionnaireFormValues {
+  const normalized: QuestionnaireFormValues = { ...values }
+
+  for (const [key, value] of Object.entries(normalized)) {
+    if (typeof value === 'string') {
+      normalized[key] = value.trim()
+      continue
+    }
+
+    if (Array.isArray(value)) {
+      normalized[key] = value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      continue
+    }
+
+    if (typeof value === 'number' && Number.isNaN(value)) {
+      normalized[key] = null
+    }
+  }
+
   return {
-    ...values,
-    guestCount: typeof values.guestCount === 'number' && !Number.isNaN(values.guestCount) ? values.guestCount : null,
+    ...normalized,
+    guestCount: typeof normalized.guestCount === 'number' && !Number.isNaN(normalized.guestCount)
+      ? normalized.guestCount
+      : null,
   }
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function validateTemplateRequirements(
+  template: QuestionnaireTemplateDefinition | null,
+  values: QuestionnaireFormValues,
+): string | null {
+  if (!template) return null
+
+  for (const field of template.fields) {
+    if (!field.required) continue
+
+    const value = values[field.id]
+    const isMissing =
+      value === null
+      || typeof value === 'undefined'
+      || (typeof value === 'string' && !value.trim())
+      || (Array.isArray(value) && value.length === 0)
+
+    if (isMissing) {
+      return `Please complete required field: ${field.label}`
+    }
+  }
+
+  return null
+}
+
+function TemplateField({
+  field,
+  form,
+}: {
+  field: QuestionnaireTemplateField
+  form: ReturnType<typeof useForm<QuestionnaireFormValues>>
+}) {
+  const optionFields = new Set(['multiple_choice', 'dropdown', 'checkboxes', 'radio_buttons'])
+  const isOptionField = optionFields.has(field.type)
+  const options = field.options?.length ? field.options : ['Option 1']
+
   return (
-    <label className="text-xs uppercase tracking-[0.4em] text-brand-muted">
-      {label}
-      <div className="mt-2">{children}</div>
-    </label>
+    <Field label={field.label} required={field.required} helpText={field.helpText}>
+      {field.type === 'paragraph_text' ? (
+        <textarea
+          rows={5}
+          className={TEXTAREA_CLASS}
+          placeholder={field.placeholder || 'Enter your answer'}
+          {...form.register(field.id)}
+        />
+      ) : null}
+
+      {field.type === 'date' ? (
+        <input type="date" className={INPUT_CLASS} {...form.register(field.id)} />
+      ) : null}
+
+      {field.type === 'time' ? (
+        <input type="time" className={INPUT_CLASS} {...form.register(field.id)} />
+      ) : null}
+
+      {field.type === 'number' ? (
+        <input type="number" className={INPUT_CLASS} placeholder={field.placeholder || '0'} {...form.register(field.id, { valueAsNumber: true })} />
+      ) : null}
+
+      {field.type === 'email' ? (
+        <input type="email" className={INPUT_CLASS} placeholder={field.placeholder || 'name@email.com'} {...form.register(field.id)} />
+      ) : null}
+
+      {field.type === 'phone' ? (
+        <input type="tel" className={INPUT_CLASS} placeholder={field.placeholder || '+52 555 000 0000'} {...form.register(field.id)} />
+      ) : null}
+
+      {field.type === 'single_line_text' ? (
+        <input className={INPUT_CLASS} placeholder={field.placeholder || 'Enter your answer'} {...form.register(field.id)} />
+      ) : null}
+
+      {isOptionField && field.type === 'dropdown' ? (
+        <select className={INPUT_CLASS} {...form.register(field.id)}>
+          <option value="">Select one</option>
+          {options.map((option) => (
+            <option key={`${field.id}-${option}`} value={option}>{option}</option>
+          ))}
+        </select>
+      ) : null}
+
+      {isOptionField && field.type === 'radio_buttons' ? (
+        <div className="space-y-2 border border-border/30 bg-surface-muted/20 p-3 text-sm text-white">
+          {options.map((option) => (
+            <label key={`${field.id}-${option}`} className="flex items-center gap-2">
+              <input type="radio" value={option} className="accent-brand-primary" {...form.register(field.id)} />
+              <span>{option}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+
+      {isOptionField && (field.type === 'checkboxes' || field.type === 'multiple_choice') ? (
+        <div className="space-y-2 border border-border/30 bg-surface-muted/20 p-3 text-sm text-white">
+          {options.map((option) => (
+            <label key={`${field.id}-${option}`} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                value={option}
+                className="accent-brand-primary"
+                {...form.register(field.id)}
+              />
+              <span>{option}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </Field>
   )
 }
 
-function FieldError({ message }: { message?: string }) {
-  if (!message) return null
-  return <p className="mt-1 text-xs text-amber-300">{message}</p>
+function Field({
+  label,
+  required,
+  helpText,
+  children,
+}: {
+  label: string
+  required?: boolean
+  helpText?: string
+  children: ReactNode
+}) {
+  return (
+    <label className="text-xs uppercase tracking-[0.4em] text-brand-muted">
+      {label}{required ? ' *' : ''}
+      <div className="mt-2">{children}</div>
+      {helpText ? <p className="mt-2 normal-case tracking-normal text-brand-muted">{helpText}</p> : null}
+    </label>
+  )
 }

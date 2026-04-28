@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card'
 import { fetchCompanyDetails } from '@/services/companyDetailsService'
 import { fetchFinancialSettings } from '@/services/financialSettingsService'
 import { fetchContractTemplateSettings } from '@/services/contractTemplateSettingsService'
+import { fetchQuestionnaireTemplateSettings } from '@/services/questionnaireTemplateSettingsService'
 import { fetchPaymentScheduleSettings } from '@/services/paymentScheduleSettingsService'
 import { addDaysToDate, buildPaymentScheduleFromTemplates } from '@/services/paymentScheduleService'
 import { DEFAULT_TAX_TOGGLES, mapFinancialTaxRatesToQuoteRates, mapFinancialTaxToggles } from '@/services/financialTaxService'
@@ -120,6 +121,7 @@ export function QuoteBuilderPage() {
   const [showAddRecipient, setShowAddRecipient] = useState(false)
   const [newRecipient, setNewRecipient] = useState({ name: '', email: '', role: 'Other' })
   const [selectedPaymentScheduleId, setSelectedPaymentScheduleId] = useState('')
+  const [selectedQuestionnaireTemplateId, setSelectedQuestionnaireTemplateId] = useState('')
   const [selectedContractTemplateId, setSelectedContractTemplateId] = useState('')
   const [customLineDraft, setCustomLineDraft] = useState<CustomLineDraft>({
     description: '',
@@ -189,7 +191,13 @@ export function QuoteBuilderPage() {
     queryFn: () => fetchContractTemplateSettings(brand.slug),
   })
 
+  const questionnaireTemplateSettingsQuery = useQuery({
+    queryKey: ['settings-questionnaire-templates', brand.slug],
+    queryFn: () => fetchQuestionnaireTemplateSettings(brand.slug),
+  })
+
   const availablePaymentSchedules = paymentScheduleSettingsQuery.data?.schedules ?? []
+  const availableQuestionnaireTemplates = questionnaireTemplateSettingsQuery.data?.templates ?? []
   const availableContractTemplates = contractTemplateSettingsQuery.data?.templates ?? []
   const auditActor = useMemo(() => {
     return buildPaymentScheduleAuditActorLabel({
@@ -279,6 +287,7 @@ export function QuoteBuilderPage() {
     selectedContractTemplateIdOverride?: string | null,
     paymentScheduleAuditEventOverride?: ProposalPaymentScheduleAudit,
     explicitPaymentScheduleOverride?: Array<{ label: string; amount: number; dueDate: string }> | null,
+    selectedQuestionnaireTemplateIdOverride?: string | null,
   ) => {
     const snapshotCurrency: 'USD' | 'MXN' = selectedCurrency === 'MXN' ? 'MXN' : 'USD'
 
@@ -288,6 +297,7 @@ export function QuoteBuilderPage() {
     currency: selectedCurrency,
     recipients: quoteRecipients.map(mapUiRecipientToProposal),
     selectedPaymentScheduleId: (selectedScheduleIdOverride ?? selectedPaymentScheduleId) || null,
+    selectedQuestionnaireTemplateId: (selectedQuestionnaireTemplateIdOverride ?? selectedQuestionnaireTemplateId) || null,
     selectedContractTemplateId: (selectedContractTemplateIdOverride ?? selectedContractTemplateId) || null,
       paymentScheduleAuditEvent: paymentScheduleAuditEventOverride,
       explicitPaymentSchedule: explicitPaymentScheduleOverride,
@@ -478,6 +488,10 @@ export function QuoteBuilderPage() {
         setSelectedPaymentScheduleId(data.selectedPaymentScheduleId)
       }
 
+      if (data.selectedQuestionnaireTemplateId) {
+        setSelectedQuestionnaireTemplateId(data.selectedQuestionnaireTemplateId)
+      }
+
       if (data.selectedContractTemplateId) {
         setSelectedContractTemplateId(data.selectedContractTemplateId)
       }
@@ -498,6 +512,21 @@ export function QuoteBuilderPage() {
       setSelectedPaymentScheduleId(defaultSchedule.id)
     }
   }, [availablePaymentSchedules, selectedPaymentScheduleId])
+
+  useEffect(() => {
+    if (!availableQuestionnaireTemplates.length) {
+      setSelectedQuestionnaireTemplateId('')
+      return
+    }
+
+    const hasSelected = availableQuestionnaireTemplates.some((template) => template.id === selectedQuestionnaireTemplateId)
+    if (hasSelected) return
+
+    const defaultTemplate = availableQuestionnaireTemplates.find((template) => template.isDefault) ?? availableQuestionnaireTemplates[0]
+    if (defaultTemplate?.id) {
+      setSelectedQuestionnaireTemplateId(defaultTemplate.id)
+    }
+  }, [availableQuestionnaireTemplates, selectedQuestionnaireTemplateId])
 
   useEffect(() => {
     if (!availableContractTemplates.length) {
@@ -590,6 +619,11 @@ export function QuoteBuilderPage() {
   const selectedContractTemplate = useMemo(
     () => availableContractTemplates.find((template) => template.id === selectedContractTemplateId) ?? null,
     [availableContractTemplates, selectedContractTemplateId],
+  )
+
+  const selectedQuestionnaireTemplate = useMemo(
+    () => availableQuestionnaireTemplates.find((template) => template.id === selectedQuestionnaireTemplateId) ?? null,
+    [availableQuestionnaireTemplates, selectedQuestionnaireTemplateId],
   )
 
   const selectedPaymentSchedulePreview = useMemo(() => {
@@ -716,6 +750,27 @@ export function QuoteBuilderPage() {
       .catch((error) => {
         console.error(error)
         toast.error(error instanceof Error ? error.message : 'Unable to update contract template selection')
+      })
+  }
+
+  const handleQuestionnaireTemplateSelectionChange = (nextTemplateId: string) => {
+    setSelectedQuestionnaireTemplateId(nextTemplateId)
+
+    if (!data?.id) return
+
+    void updateProposalLineItems(data.id, buildProposalUpdatePayload(
+      persistedLineItems,
+      computedSummary.taxes,
+      selectedPaymentScheduleId,
+      selectedContractTemplateId,
+      undefined,
+      undefined,
+      nextTemplateId,
+    ))
+      .then(() => queryClient.invalidateQueries({ queryKey: ['proposal', brand.slug, leadId] }))
+      .catch((error) => {
+        console.error(error)
+        toast.error(error instanceof Error ? error.message : 'Unable to update questionnaire template selection')
       })
   }
 
@@ -962,6 +1017,7 @@ export function QuoteBuilderPage() {
     selectedCatalog,
     isSnapshotLocked,
     selectedPaymentScheduleId,
+    selectedQuestionnaireTemplateId,
     selectedContractTemplateId,
     financialTaxRates,
     watchTaxes,
@@ -1846,6 +1902,41 @@ export function QuoteBuilderPage() {
                         {applySelectedScheduleNowMutation.isPending ? 'Applying Schedule…' : 'Apply Selected Schedule to Proposal Now'}
                       </button>
                     </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t border-border/30 pt-3">
+                <p className="mb-2 text-xs uppercase tracking-[0.2em] text-brand-muted">Questionnaire Template</p>
+                <label className="text-xs uppercase tracking-[0.2em] text-brand-muted">
+                  Apply Saved Questionnaire Template
+                  <select
+                    className="select-compact mt-1 w-full"
+                    value={selectedQuestionnaireTemplateId}
+                    onChange={(event) => handleQuestionnaireTemplateSelectionChange(event.target.value)}
+                    disabled={!availableQuestionnaireTemplates.length}
+                  >
+                    {!availableQuestionnaireTemplates.length ? (
+                      <option value="">No questionnaire templates configured in Settings</option>
+                    ) : null}
+                    {availableQuestionnaireTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}{template.isDefault ? ' (Default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="mt-2 text-xs text-brand-muted">
+                  This selected template will be used by the questionnaire step for this quote/proposal.
+                </p>
+                {selectedQuestionnaireTemplate ? (
+                  <div className="mt-2 border border-border/30 bg-surface-muted/20 p-2 text-xs text-brand-muted">
+                    <p>
+                      Selected: <span className="text-white">{selectedQuestionnaireTemplate.name}</span>
+                    </p>
+                    <p className="mt-1">
+                      Questionnaire title: <span className="text-white">{selectedQuestionnaireTemplate.title}</span>
+                    </p>
                   </div>
                 ) : null}
               </div>

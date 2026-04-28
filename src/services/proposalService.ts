@@ -40,6 +40,7 @@ export interface ProposalSummary {
   dateSent: string | null
   marketSnapshot?: ProposalMarketSnapshot
   selectedPaymentScheduleId?: string
+  selectedQuestionnaireTemplateId?: string
   selectedContractTemplateId?: string
   hasExplicitPaymentSchedule: boolean
   paymentScheduleAudit?: ProposalPaymentScheduleAudit
@@ -167,6 +168,7 @@ export async function fetchLatestProposal(brandSlug: BrandSlug, options?: FetchP
       ?? (data.status === 'sent' || data.status === 'accepted' ? data.updated_at : null),
     marketSnapshot,
     selectedPaymentScheduleId: extractSelectedPaymentScheduleId(data.payment_schedule),
+    selectedQuestionnaireTemplateId: extractSelectedQuestionnaireTemplateId(data.payment_schedule),
     selectedContractTemplateId: extractSelectedContractTemplateId(data.payment_schedule),
     hasExplicitPaymentSchedule: hasExplicitPaymentSchedule(data.payment_schedule),
     paymentScheduleAudit: extractPaymentScheduleAudit(data.payment_schedule),
@@ -274,6 +276,7 @@ export async function ensureDraftProposalForLead(
     dateSent: null,
     marketSnapshot,
     selectedPaymentScheduleId: extractSelectedPaymentScheduleId(data.payment_schedule),
+    selectedQuestionnaireTemplateId: extractSelectedQuestionnaireTemplateId(data.payment_schedule),
     selectedContractTemplateId: extractSelectedContractTemplateId(data.payment_schedule),
     hasExplicitPaymentSchedule: hasExplicitPaymentSchedule(data.payment_schedule),
     paymentScheduleAudit: extractPaymentScheduleAudit(data.payment_schedule),
@@ -473,6 +476,7 @@ interface UpdateProposalLineItemsInput {
   marketSnapshot?: ProposalMarketSnapshot
   recipients?: ProposalRecipient[]
   selectedPaymentScheduleId?: string | null
+  selectedQuestionnaireTemplateId?: string | null
   selectedContractTemplateId?: string | null
   paymentScheduleAuditEvent?: ProposalPaymentScheduleAudit
   explicitPaymentSchedule?: Array<{
@@ -504,6 +508,7 @@ export async function updateProposalLineItems(
     payload.marketSnapshot,
     payload.recipients,
     payload.selectedPaymentScheduleId,
+    payload.selectedQuestionnaireTemplateId,
     payload.selectedContractTemplateId,
     payload.paymentScheduleAuditEvent,
     payload.explicitPaymentSchedule,
@@ -1060,6 +1065,20 @@ function extractSelectedContractTemplateId(payload: ProposalRow['payment_schedul
   return trimmed || undefined
 }
 
+function extractSelectedQuestionnaireTemplateId(payload: ProposalRow['payment_schedule']): string | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined
+  }
+
+  const candidate = payload as { selectedQuestionnaireTemplateId?: unknown }
+  if (typeof candidate.selectedQuestionnaireTemplateId !== 'string') {
+    return undefined
+  }
+
+  const trimmed = candidate.selectedQuestionnaireTemplateId.trim()
+  return trimmed || undefined
+}
+
 function extractPaymentScheduleAudit(payload: ProposalRow['payment_schedule']): ProposalPaymentScheduleAudit | undefined {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return undefined
@@ -1116,6 +1135,7 @@ function mergePaymentScheduleWithMarketSnapshot(
   marketSnapshot?: ProposalMarketSnapshot,
   recipients?: ProposalRecipient[],
   selectedPaymentScheduleId?: string | null,
+  selectedQuestionnaireTemplateId?: string | null,
   selectedContractTemplateId?: string | null,
   paymentScheduleAuditEvent?: ProposalPaymentScheduleAudit,
   explicitPaymentSchedule?: Array<{ label: string; amount: number; dueDate: string }> | null,
@@ -1124,6 +1144,7 @@ function mergePaymentScheduleWithMarketSnapshot(
     !marketSnapshot
     && !recipients
     && typeof selectedPaymentScheduleId === 'undefined'
+    && typeof selectedQuestionnaireTemplateId === 'undefined'
     && typeof selectedContractTemplateId === 'undefined'
     && typeof paymentScheduleAuditEvent === 'undefined'
     && typeof explicitPaymentSchedule === 'undefined'
@@ -1169,6 +1190,9 @@ function mergePaymentScheduleWithMarketSnapshot(
     recipients: recipientsJson,
     ...(typeof selectedPaymentScheduleId === 'string' && selectedPaymentScheduleId.trim()
       ? { selectedPaymentScheduleId: selectedPaymentScheduleId.trim() }
+      : {}),
+    ...(typeof selectedQuestionnaireTemplateId === 'string' && selectedQuestionnaireTemplateId.trim()
+      ? { selectedQuestionnaireTemplateId: selectedQuestionnaireTemplateId.trim() }
       : {}),
     ...(typeof selectedContractTemplateId === 'string' && selectedContractTemplateId.trim()
       ? { selectedContractTemplateId: selectedContractTemplateId.trim() }

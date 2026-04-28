@@ -7,7 +7,7 @@ type QuestionnaireRow = Database['public']['Tables']['questionnaires']['Row']
 type EventRow = Database['public']['Tables']['events']['Row']
 
 type QuestionnaireAnswers = Partial<QuestionnaireFormValues>
-type QuestionnaireAnswerValue = string | number | boolean | null
+type QuestionnaireAnswerValue = string | number | boolean | string[] | null
 
 export interface QuestionnaireFormValues extends Record<string, QuestionnaireAnswerValue> {
   clientNames: string
@@ -65,6 +65,7 @@ export async function fetchQuestionnaire(eventId: string, options?: Questionnair
   const endTimeFromEvent = eventRow?.end_time ? eventRow.end_time.slice(11, 16) : ''
 
   const values: QuestionnaireFormValues = {
+    ...(answers ?? {}),
     clientNames: answers?.clientNames ?? options?.clientFallback?.name ?? '',
     clientEmail: answers?.clientEmail ?? options?.clientFallback?.email ?? '',
     plannerName: answers?.plannerName ?? location?.plannerName ?? '',
@@ -98,6 +99,7 @@ interface SaveQuestionnaireParams {
 export async function saveQuestionnaire({ eventId, brandSlug, leadId, payload, submit = false }: SaveQuestionnaireParams) {
   const brandUuid = await getBrandUuidFromSlug(brandSlug)
   const answers: QuestionnaireAnswers = { ...payload }
+  const clientEmail = readString(payload.clientEmail)
 
   const { error: upsertError } = await supabaseClient
     .from('questionnaires')
@@ -105,7 +107,7 @@ export async function saveQuestionnaire({ eventId, brandSlug, leadId, payload, s
       {
         event_id: eventId,
         brand_id: brandUuid,
-        client_email: payload.clientEmail,
+        client_email: clientEmail,
         answers,
         status: submit ? 'submitted' : 'draft',
         submitted_at: submit ? new Date().toISOString() : null,
@@ -120,17 +122,17 @@ export async function saveQuestionnaire({ eventId, brandSlug, leadId, payload, s
   const { error: eventUpdateError } = await supabaseClient
     .from('events')
     .update({
-      title: payload.eventTitle,
-      start_time: toIso(payload.startDate, payload.startTime),
-      end_time: toIso(payload.startDate, payload.endTime),
+      title: readString(payload.eventTitle),
+      start_time: toIso(readString(payload.startDate), readString(payload.startTime)),
+      end_time: toIso(readString(payload.startDate), readString(payload.endTime)),
       location: {
-        ceremonyAddress: payload.ceremonyLocation,
-        receptionAddress: payload.receptionLocation,
-        plannerName: payload.plannerName,
-        plannerEmail: payload.plannerEmail,
-        plannerPhone: payload.plannerPhone,
-        notes: payload.notes,
-        guestCount: payload.guestCount,
+        ceremonyAddress: readString(payload.ceremonyLocation),
+        receptionAddress: readString(payload.receptionLocation),
+        plannerName: readString(payload.plannerName),
+        plannerEmail: readString(payload.plannerEmail),
+        plannerPhone: readString(payload.plannerPhone),
+        notes: readString(payload.notes),
+        guestCount: typeof payload.guestCount === 'number' && Number.isFinite(payload.guestCount) ? payload.guestCount : null,
       },
     })
     .eq('id', eventId)
@@ -152,4 +154,8 @@ function toIso(date: string, time?: string) {
   const normalizedTime = time && time.length ? time : '00:00'
   const iso = new Date(`${date}T${normalizedTime}`)
   return Number.isNaN(iso.getTime()) ? null : iso.toISOString()
+}
+
+function readString(value: QuestionnaireAnswerValue | undefined): string {
+  return typeof value === 'string' ? value : ''
 }
