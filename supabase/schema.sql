@@ -13,6 +13,72 @@ create table if not exists public.brands (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.brand_catalog_services (
+  id text primary key,
+  brand_id uuid not null references public.brands (id) on delete cascade,
+  name text not null,
+  name_es text,
+  description text not null default '',
+  description_es text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists brand_catalog_services_brand_idx
+  on public.brand_catalog_services (brand_id, name);
+
+create table if not exists public.brand_service_pricing_tiers (
+  id text primary key,
+  brand_id uuid not null references public.brands (id) on delete cascade,
+  service_id text not null references public.brand_catalog_services (id) on delete cascade,
+  catalog_key text not null default 'INT_USD_ENG' check (catalog_key in ('INT_USD_ENG', 'MEX_MXN_ESP')),
+  hours int not null check (hours >= 1 and hours <= 24),
+  cost numeric not null default 0,
+  price numeric not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (brand_id, service_id, catalog_key, hours)
+);
+
+create index if not exists brand_service_pricing_tiers_brand_catalog_idx
+  on public.brand_service_pricing_tiers (brand_id, catalog_key, service_id, hours);
+
+create table if not exists public.brand_package_presets (
+  id text primary key,
+  brand_id uuid not null references public.brands (id) on delete cascade,
+  catalog_key text not null default 'INT_USD_ENG' check (catalog_key in ('INT_USD_ENG', 'MEX_MXN_ESP')),
+  name text not null,
+  description text not null default '',
+  is_active boolean not null default true,
+  package_hourly_price numeric,
+  hourly_price_by_hour jsonb,
+  components jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists brand_package_presets_brand_catalog_idx
+  on public.brand_package_presets (brand_id, catalog_key, updated_at desc);
+
+create table if not exists public.brand_pricing_input_profiles (
+  id text primary key,
+  brand_id uuid not null references public.brands (id) on delete cascade,
+  catalog_key text not null default 'INT_USD_ENG' check (catalog_key in ('INT_USD_ENG', 'MEX_MXN_ESP')),
+  admin_percent numeric not null default 5,
+  sales_percent numeric not null default 10,
+  planner_percent numeric not null default 15,
+  profit_percent numeric not null default 35,
+  payment_fee_percent numeric not null default 5.85,
+  tax_percent numeric not null default 16,
+  include_tax_in_sell_price boolean not null default false,
+  updated_at timestamptz not null default now(),
+  unique (brand_id, catalog_key)
+);
+
+create index if not exists brand_pricing_input_profiles_brand_catalog_idx
+  on public.brand_pricing_input_profiles (brand_id, catalog_key);
+
 insert into public.brands (name, slug)
 values
   ('Amo Studio MX', 'amo'),
@@ -229,17 +295,64 @@ create index if not exists lead_internal_notes_lead_created_idx on public.lead_i
 create table if not exists public.lead_payables (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references public.leads (id) on delete cascade,
+  event_id uuid references public.events (id) on delete set null,
   brand_id uuid not null references public.brands (id),
   title text not null,
   category text,
   amount numeric not null default 0,
   currency text not null default 'MXN',
   due_date date,
+  paid_at date,
   status text not null default 'planned' check (status in ('planned', 'scheduled', 'paid', 'cancelled')),
+  source text not null default 'manual' check (source in ('manual', 'package_component', 'commission', 'adjustment')),
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'lead_payables'
+      and column_name = 'event_id'
+  ) then
+    alter table public.lead_payables
+      add column event_id uuid references public.events (id) on delete set null;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'lead_payables'
+      and column_name = 'paid_at'
+  ) then
+    alter table public.lead_payables
+      add column paid_at date;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'lead_payables'
+      and column_name = 'source'
+  ) then
+    alter table public.lead_payables
+      add column source text not null default 'manual';
+  end if;
+
+  alter table public.lead_payables
+    drop constraint if exists lead_payables_source_check;
+
+  alter table public.lead_payables
+    add constraint lead_payables_source_check
+    check (source in ('manual', 'package_component', 'commission', 'adjustment'));
+end
+$$;
 
 create index if not exists lead_payables_lead_due_idx on public.lead_payables (lead_id, due_date, status);
 

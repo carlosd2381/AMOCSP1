@@ -16,6 +16,8 @@ export interface LineItem {
   description: string
   quantity: number
   unitPrice: number
+  displayMode?: 'priced' | 'included'
+  internalCost?: number
   discounts?: number
   taxes?: TaxLine[]
 }
