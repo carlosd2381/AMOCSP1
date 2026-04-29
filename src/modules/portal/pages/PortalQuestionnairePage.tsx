@@ -42,15 +42,6 @@ export function PortalQuestionnairePage() {
   const leadId = portal?.lead?.id
   const step = portal?.steps.find((item) => item.key === 'questionnaire')
 
-  const { data: snapshot, isLoading } = useQuery({
-    queryKey: ['portal-questionnaire', eventId],
-    queryFn: () =>
-      fetchQuestionnaire(eventId!, {
-        clientFallback: { name: portal?.lead?.clientName, email: portal?.lead?.clientEmail },
-      }),
-    enabled: Boolean(eventId),
-  })
-
   const questionnaireTemplateSettingsQuery = useQuery({
     queryKey: ['settings-questionnaire-templates', brand.slug],
     queryFn: () => fetchQuestionnaireTemplateSettings(brand.slug),
@@ -82,6 +73,16 @@ export function PortalQuestionnairePage() {
     questionnaireTemplateSettingsQuery.data?.templates,
     proposalQuery.data?.selectedQuestionnaireTemplateId,
   ])
+
+  const { data: snapshot, isLoading } = useQuery({
+    queryKey: ['portal-questionnaire', eventId, selectedTemplate?.id ?? 'no-template'],
+    queryFn: () =>
+      fetchQuestionnaire(eventId!, {
+        clientFallback: { name: portal?.lead?.clientName, email: portal?.lead?.clientEmail },
+        template: selectedTemplate,
+      }),
+    enabled: Boolean(eventId),
+  })
 
   const form = useForm<QuestionnaireFormValues>({
     defaultValues: snapshot?.values ?? EMPTY_VALUES,

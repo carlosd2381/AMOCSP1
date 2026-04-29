@@ -2,7 +2,7 @@ import { supabaseClient } from '@/lib/supabase'
 import type { Database } from '@/lib/database.types'
 import { getBrandUuidFromSlug } from '@/lib/brandRegistry'
 import { type BrandSlug } from '@/types'
-import { type QuestionnaireTemplateDefinition } from '@/services/questionnaireTemplateSettingsService'
+import { type QuestionnaireTemplateDefinition, type QuestionnaireTemplateField } from '@/services/questionnaireTemplateSettingsService'
 
 type QuestionnaireRow = Database['public']['Tables']['questionnaires']['Row']
 type EventRow = Database['public']['Tables']['events']['Row']
@@ -37,6 +37,7 @@ interface QuestionnaireFetchOptions {
     name?: string
     email?: string
   }
+  template?: QuestionnaireTemplateDefinition | null
 }
 
 export async function fetchQuestionnaire(eventId: string, options?: QuestionnaireFetchOptions): Promise<QuestionnaireSnapshot> {
@@ -50,7 +51,7 @@ export async function fetchQuestionnaire(eventId: string, options?: Questionnair
       .maybeSingle<QuestionnaireRow>(),
     supabaseClient
       .from('events')
-      .select('title, start_time, end_time, location')
+      .select('title, start_time, end_time, location, lead_id')
       .eq('id', eventId)
       .maybeSingle<EventRow>(),
   ])
@@ -65,7 +66,7 @@ export async function fetchQuestionnaire(eventId: string, options?: Questionnair
   const startTimeFromEvent = eventRow?.start_time ? eventRow.start_time.slice(11, 16) : ''
   const endTimeFromEvent = eventRow?.end_time ? eventRow.end_time.slice(11, 16) : ''
 
-  const values: QuestionnaireFormValues = {
+  let values: QuestionnaireFormValues = {
     ...(answers ?? {}),
     clientNames: answers?.clientNames ?? options?.clientFallback?.name ?? '',
     clientEmail: answers?.clientEmail ?? options?.clientFallback?.email ?? '',
@@ -80,6 +81,11 @@ export async function fetchQuestionnaire(eventId: string, options?: Questionnair
     receptionLocation: answers?.receptionLocation ?? location?.receptionAddress ?? '',
     guestCount: typeof answers?.guestCount === 'number' ? answers?.guestCount : null,
     notes: answers?.notes ?? location?.notes ?? '',
+  }
+
+  if (options?.template) {
+    const tokenPrefillMap = await buildQuestionnaireTokenPrefillMap(eventRow)
+    values = applyTemplateTokenPrefill(values, answers, options.template, tokenPrefillMap)
   }
 
   return {
@@ -164,6 +170,199 @@ function toIso(date: string, time?: string) {
 
 function readString(value: QuestionnaireAnswerValue | undefined): string {
   return typeof value === 'string' ? value : ''
+}
+
+function normalizeTokenKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+}
+
+function hasAnswerValue(value: QuestionnaireAnswerValue | undefined): boolean {
+  if (typeof value === 'string') return Boolean(value.trim())
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (typeof value === 'boolean') return true
+  if (Array.isArray(value)) return value.length > 0
+  return false
+}
+
+function coercePrefillValueByFieldType(
+  field: QuestionnaireTemplateField,
+  rawValue: string,
+): QuestionnaireAnswerValue {
+  if (field.type === 'number') {
+    const parsed = Number(rawValue)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (field.type === 'checkboxes' || field.type === 'multiple_choice') {
+    return rawValue
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  }
+
+  return rawValue
+}
+
+function applyTemplateTokenPrefill(
+  baseValues: QuestionnaireFormValues,
+  answers: QuestionnaireAnswers | null,
+  template: QuestionnaireTemplateDefinition,
+  tokenPrefillMap: Record<string, string>,
+): QuestionnaireFormValues {
+  const nextValues: QuestionnaireFormValues = { ...baseValues }
+
+  for (const field of template.fields) {
+    const tokenKey = normalizeTokenKey(field.clientTokenKey ?? '')
+    if (!tokenKey) continue
+
+    const existingAnswer = answers?.[field.id]
+    if (hasAnswerValue(existingAnswer)) continue
+    if (hasAnswerValue(nextValues[field.id])) continue
+
+    const mappedValue = tokenPrefillMap[tokenKey]
+    if (!mappedValue?.trim()) continue
+
+    nextValues[field.id] = coercePrefillValueByFieldType(field, mappedValue.trim())
+  }
+
+  return nextValues
+}
+
+async function buildQuestionnaireTokenPrefillMap(eventRow: EventRow | null): Promise<Record<string, string>> {
+  const tokenMap: Record<string, string> = {}
+
+  if (!eventRow) {
+    return tokenMap
+  }
+
+  if (eventRow.start_time) {
+    tokenMap.event_date = eventRow.start_time.slice(0, 10)
+    tokenMap.event_time = eventRow.start_time.slice(11, 16)
+  }
+
+  if (eventRow.end_time) {
+    tokenMap.event_end_time = eventRow.end_time.slice(11, 16)
+  }
+
+  if (eventRow.location && typeof eventRow.location === 'object' && !Array.isArray(eventRow.location)) {
+    const location = eventRow.location as Record<string, unknown>
+    const eventLocation = typeof location.address === 'string'
+      ? location.address
+      : (typeof location.ceremonyAddress === 'string' ? location.ceremonyAddress : '')
+    if (eventLocation.trim()) {
+      tokenMap.event_location = eventLocation.trim()
+    }
+  }
+
+  if (!eventRow.lead_id) {
+    return tokenMap
+  }
+
+  const { data: leadRow, error: leadError } = await supabaseClient
+    .from('leads')
+    .select('client_id')
+    .eq('id', eventRow.lead_id)
+    .maybeSingle<{ client_id: string }>()
+
+  if (leadError) {
+    throw leadError
+  }
+
+  if (!leadRow?.client_id) {
+    return tokenMap
+  }
+
+  const { data: clientRow, error: clientError } = await supabaseClient
+    .from('clients')
+    .select('name, email, phone, address')
+    .eq('id', leadRow.client_id)
+    .maybeSingle<Database['public']['Tables']['clients']['Row']>()
+
+  if (clientError) {
+    throw clientError
+  }
+
+  if (clientRow?.name?.trim()) {
+    tokenMap.client_name = clientRow.name.trim()
+    tokenMap['client.name'] = clientRow.name.trim()
+  }
+  if (clientRow?.email?.trim()) {
+    tokenMap.client_email = clientRow.email.trim()
+    tokenMap['client.email'] = clientRow.email.trim()
+  }
+  if (clientRow?.phone?.trim()) {
+    tokenMap.client_phone = clientRow.phone.trim()
+    tokenMap['client.phone'] = clientRow.phone.trim()
+  }
+
+  const questionnaireTokens = (
+    clientRow?.address
+    && typeof clientRow.address === 'object'
+    && !Array.isArray(clientRow.address)
+    && (clientRow.address as Record<string, unknown>).questionnaireTokens
+    && typeof (clientRow.address as Record<string, unknown>).questionnaireTokens === 'object'
+    && !Array.isArray((clientRow.address as Record<string, unknown>).questionnaireTokens)
+  )
+    ? (clientRow.address as Record<string, unknown>).questionnaireTokens as Record<string, unknown>
+    : {}
+
+  for (const [key, value] of Object.entries(questionnaireTokens)) {
+    if (typeof value !== 'string') continue
+    const normalizedKey = normalizeTokenKey(key)
+    const normalizedValue = value.trim()
+    if (!normalizedKey || !normalizedValue) continue
+    tokenMap[normalizedKey] = normalizedValue
+  }
+
+  const { data: roleRows, error: roleError } = await supabaseClient
+    .from('lead_contacts')
+    .select('role, contact_id')
+    .eq('lead_id', eventRow.lead_id)
+
+  if (roleError) {
+    throw roleError
+  }
+
+  const contactIds = (roleRows ?? []).map((row) => row.contact_id)
+  if (!contactIds.length) {
+    return tokenMap
+  }
+
+  const { data: contactRows, error: contactError } = await supabaseClient
+    .from('address_book_contacts')
+    .select('id, display_name, email, phone')
+    .in('id', contactIds)
+
+  if (contactError) {
+    throw contactError
+  }
+
+  const contactsById = new Map((contactRows ?? []).map((row) => [row.id, row]))
+  for (const row of roleRows ?? []) {
+    const contact = contactsById.get(row.contact_id)
+    if (!contact) continue
+
+    const roleKey = normalizeTokenKey(String(row.role || ''))
+    if (!roleKey) continue
+
+    if (contact.display_name?.trim()) {
+      tokenMap[`${roleKey}.name`] = contact.display_name.trim()
+      tokenMap[`${roleKey}_name`] = contact.display_name.trim()
+    }
+    if (contact.email?.trim()) {
+      tokenMap[`${roleKey}.email`] = contact.email.trim()
+      tokenMap[`${roleKey}_email`] = contact.email.trim()
+    }
+    if (contact.phone?.trim()) {
+      tokenMap[`${roleKey}.phone`] = contact.phone.trim()
+      tokenMap[`${roleKey}_phone`] = contact.phone.trim()
+    }
+  }
+
+  return tokenMap
 }
 
 type ClientTokenKey = 'client_name' | 'client_email' | 'client_phone'
