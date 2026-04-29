@@ -69,9 +69,11 @@ const RECOMMENDED_CLIENT_TOKEN_KEYS = [
   'bride.name',
   'bride.email',
   'bride.phone',
+  'bride.address',
   'groom.name',
   'groom.email',
   'groom.phone',
+  'groom.address',
 ]
 
 function requiresOptions(type: QuestionnaireFieldType) {
