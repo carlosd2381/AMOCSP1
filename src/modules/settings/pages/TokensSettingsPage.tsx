@@ -37,6 +37,14 @@ function normalizeTokenKey(value: string) {
     .replace(/^[_\.]+|[_\.]+$/g, '')
 }
 
+function normalizeTokenKeyForInput(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_.]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/\.+/g, '.')
+}
+
 function copyToClipboard(value: string) {
   return navigator.clipboard.writeText(value)
 }
@@ -198,7 +206,11 @@ export function TokensSettingsPage() {
                       value={token.key}
                       onChange={(event) => updateToken(token.id, (current) => ({
                         ...current,
-                        key: normalizeTokenKey(event.target.value),
+                        key: normalizeTokenKeyForInput(event.target.value),
+                      }))}
+                      onBlur={() => updateToken(token.id, (current) => ({
+                        ...current,
+                        key: normalizeTokenKey(current.key),
                       }))}
                       disabled={disabled}
                     />
@@ -302,7 +314,7 @@ export function TokensSettingsPage() {
 
           {hasValidationError ? (
             <p className="text-xs text-rose-300">
-              Each custom token needs a unique key and a label. Keys should use lowercase letters, numbers, and underscores.
+              Each custom token needs a unique key and a label. Keys should use lowercase letters, numbers, underscores, and optional dot notation.
             </p>
           ) : null}
         </div>
