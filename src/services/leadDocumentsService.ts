@@ -267,6 +267,7 @@ export async function createContractForEvent(input: CreateContractInput) {
   let groomName = ''
   let groomEmail = ''
   let groomPhone = ''
+  let questionnaireTokenValues: Record<string, string> = {}
   if (resolvedTemplate.leadId) {
     const { data: leadRow, error: leadError } = await supabaseClient
       .from('leads')
@@ -279,11 +280,31 @@ export async function createContractForEvent(input: CreateContractInput) {
     if (clientId) {
       const { data: clientRow, error: clientError } = await supabaseClient
         .from('clients')
-        .select('name')
+        .select('name, address')
         .eq('id', clientId)
         .maybeSingle()
       if (clientError) throw clientError
       clientName = clientRow?.name ?? ''
+
+      const questionnaireTokens = (
+        clientRow?.address
+        && typeof clientRow.address === 'object'
+        && !Array.isArray(clientRow.address)
+        && (clientRow.address as Record<string, unknown>).questionnaireTokens
+        && typeof (clientRow.address as Record<string, unknown>).questionnaireTokens === 'object'
+        && !Array.isArray((clientRow.address as Record<string, unknown>).questionnaireTokens)
+      )
+        ? (clientRow.address as Record<string, unknown>).questionnaireTokens as Record<string, unknown>
+        : {}
+
+      questionnaireTokenValues = Object.entries(questionnaireTokens).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (typeof value !== 'string') return acc
+        const normalizedKey = key.trim()
+        const normalizedValue = value.trim()
+        if (!normalizedKey || !normalizedValue) return acc
+        acc[normalizedKey] = normalizedValue
+        return acc
+      }, {})
     }
 
     const { data: roleRows, error: roleError } = await supabaseClient
@@ -367,6 +388,7 @@ export async function createContractForEvent(input: CreateContractInput) {
         groom_name: groomName || null,
         groom_email: groomEmail || null,
         groom_phone: groomPhone || null,
+        ...questionnaireTokenValues,
         brand: brandName || null,
         event_date: eventDate || null,
         event_location: eventLocation || null,

@@ -72,12 +72,31 @@ async function buildContractFallbackTokenValues(brandId: string, eventId?: strin
     if (clientId) {
       const { data: clientRow, error: clientError } = await supabaseClient
         .from('clients')
-        .select('name')
+        .select('name, address')
         .eq('id', clientId)
         .maybeSingle()
       if (clientError) throw clientError
       if (clientRow?.name) {
         fallback.client_name = clientRow.name
+      }
+
+      const questionnaireTokens = (
+        clientRow?.address
+        && typeof clientRow.address === 'object'
+        && !Array.isArray(clientRow.address)
+        && (clientRow.address as Record<string, unknown>).questionnaireTokens
+        && typeof (clientRow.address as Record<string, unknown>).questionnaireTokens === 'object'
+        && !Array.isArray((clientRow.address as Record<string, unknown>).questionnaireTokens)
+      )
+        ? (clientRow.address as Record<string, unknown>).questionnaireTokens as Record<string, unknown>
+        : {}
+
+      for (const [key, value] of Object.entries(questionnaireTokens)) {
+        if (typeof value !== 'string') continue
+        const normalizedKey = key.trim()
+        const normalizedValue = value.trim()
+        if (!normalizedKey || !normalizedValue) continue
+        fallback[normalizedKey] = normalizedValue
       }
     }
 
