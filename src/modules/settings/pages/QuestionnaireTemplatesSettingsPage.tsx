@@ -557,16 +557,22 @@ export function QuestionnaireTemplatesSettingsPage() {
                   </div>
 
                   <div className="rounded border border-border/40 bg-surface-muted/20 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-brand-muted">Template Preview</p>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-brand-muted">Live Template Preview</p>
                     <h3 className="mt-2 text-base font-semibold text-white">{activeTemplate.title || 'Untitled Questionnaire'}</h3>
                     {activeTemplate.description ? <p className="mt-1 text-sm text-brand-muted">{activeTemplate.description}</p> : null}
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3 space-y-3">
                       {activeTemplate.fields.map((field) => (
-                        <div key={`preview-${field.id}`} className="border border-border/30 bg-surface/40 p-2">
-                          <p className="text-sm text-white">{field.label}{field.required ? ' *' : ''}</p>
-                          <p className="text-xs uppercase tracking-[0.08em] text-brand-muted">
-                            {FIELD_TYPE_OPTIONS.find((option) => option.value === field.type)?.label ?? field.type}
-                          </p>
+                        <div key={`preview-${field.id}`} className="border border-border/30 bg-surface/40 p-3">
+                          <div className="mb-2 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm text-white">{field.label}{field.required ? ' *' : ''}</p>
+                              <p className="text-xs uppercase tracking-[0.08em] text-brand-muted">
+                                {FIELD_TYPE_OPTIONS.find((option) => option.value === field.type)?.label ?? field.type}
+                              </p>
+                            </div>
+                          </div>
+                          <PreviewFieldInput field={field} />
+                          {field.helpText ? <p className="mt-2 text-xs text-brand-muted">{field.helpText}</p> : null}
                           {field.clientTokenKey ? (
                             <p className="mt-1 text-[11px] text-brand-muted">Maps to token: {'{{'}{field.clientTokenKey}{'}}'}</p>
                           ) : null}
@@ -582,4 +588,65 @@ export function QuestionnaireTemplatesSettingsPage() {
       )}
     </div>
   )
+}
+
+function PreviewFieldInput({ field }: { field: QuestionnaireTemplateField }) {
+  const options = (field.options ?? []).filter((option) => option.trim())
+
+  if (field.type === 'paragraph_text') {
+    return <textarea className="input-compact min-h-[90px] w-full" placeholder={field.placeholder || 'Preview text...'} disabled />
+  }
+
+  if (field.type === 'dropdown') {
+    return (
+      <select className="select-compact w-full" disabled>
+        <option>{field.placeholder || 'Select one'}</option>
+        {options.map((option) => <option key={`${field.id}-preview-opt-${option}`}>{option}</option>)}
+      </select>
+    )
+  }
+
+  if (field.type === 'radio_buttons') {
+    return (
+      <div className="space-y-1.5 border border-border/30 bg-surface-muted/20 p-2">
+        {options.length ? options.map((option) => (
+          <label key={`${field.id}-preview-radio-${option}`} className="flex items-center gap-2 text-xs text-brand-muted">
+            <input type="radio" disabled />
+            <span>{option}</span>
+          </label>
+        )) : <p className="text-xs text-brand-muted">Add options to preview this field.</p>}
+      </div>
+    )
+  }
+
+  if (field.type === 'checkboxes' || field.type === 'multiple_choice') {
+    return (
+      <div className="space-y-1.5 border border-border/30 bg-surface-muted/20 p-2">
+        {options.length ? options.map((option) => (
+          <label key={`${field.id}-preview-check-${option}`} className="flex items-center gap-2 text-xs text-brand-muted">
+            <input type="checkbox" disabled />
+            <span>{option}</span>
+          </label>
+        )) : <p className="text-xs text-brand-muted">Add options to preview this field.</p>}
+      </div>
+    )
+  }
+
+  return (
+    <input
+      type={resolvePreviewInputType(field.type)}
+      className="input-compact w-full"
+      placeholder={field.placeholder || 'Preview input'}
+      disabled
+    />
+  )
+}
+
+function resolvePreviewInputType(type: QuestionnaireFieldType): 'text' | 'email' | 'tel' | 'number' | 'date' | 'time' {
+  if (type === 'email') return 'email'
+  if (type === 'phone') return 'tel'
+  if (type === 'number') return 'number'
+  if (type === 'date') return 'date'
+  if (type === 'time') return 'time'
+  return 'text'
 }
